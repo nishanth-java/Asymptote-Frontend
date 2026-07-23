@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Topology Studio - Visual Vertex & Graph Editor</title>
+  <meta name="description" content="Visual Vertex and Network Graph Architecture Studio for LLM Topologies">
+  
+  <!-- Inter & JetBrains Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="app-root">
+    <!-- Clean Top Header Bar -->
+    <header class="top-header">
+      <div class="header-actions-left">
+        <button class="btn btn-secondary btn-sm" id="btn-new-topo" title="Start empty graph">✨ New Graph</button>
+        <label class="btn btn-secondary btn-sm file-input-label" title="Import Topology JSON">
+          📂 Import JSON
+          <input type="file" id="file-import-input" accept=".json" style="display:none;">
+        </label>
+        <button class="btn btn-primary btn-sm" id="btn-export-json">💾 Export JSON</button>
+      </div>
+
+      <div class="header-actions-right">
+        <button class="btn btn-secondary btn-sm" id="btn-batch-modal" title="Batch generate slices (Q_0..Q_13)">🧬 Batch Slices</button>
+        <button class="btn btn-secondary btn-sm" id="btn-auto-layout" title="Tidy up layout dynamically">📐 Auto Layout</button>
+        <button class="btn btn-outline btn-sm" id="btn-toggle-json">🔮 Live JSON</button>
+        <div class="header-divider"></div>
+        
+        <!-- Theme Toggle -->
+        <button class="theme-toggle-btn" id="btn-theme-toggle" title="Toggle Light / Dark Mode">
+          <span id="theme-toggle-icon">☀️</span>
+          <span id="theme-toggle-text">Light Mode</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Area -->
+    <div class="main-workspace">
+      <!-- Left Sidebar: Integrated Brand Logo & Searchable Components -->
+      <aside class="palette-sidebar" id="palette-sidebar">
+        <div class="sidebar-header">
+          <div class="brand-container">
+            <div class="brand-logo" id="sidebar-logo-click" title="Click to toggle sidebar">
+              <span class="logo-icon">🪐</span>
+              <div class="brand-title">
+                <h1>Topology Studio</h1>
+                <span class="version-tag">v2.5 High-Perf</span>
+              </div>
+            </div>
+            <button class="sidebar-toggle-btn" id="btn-toggle-sidebar" title="Toggle Sidebar (Collapse / Expand)">
+              <span id="sidebar-toggle-icon">«</span>
+            </button>
+          </div>
+
+          <div class="search-input-container">
+            <span class="search-input-icon">🔍</span>
+            <input type="text" id="palette-search-input" class="form-control code-font" placeholder="Search component or type..." autocomplete="off">
+          </div>
+        </div>
+
+        <!-- Collapsed 56px Column Icon Rail -->
+        <div class="collapsed-icon-rail">
+          <button class="icon-rail-btn" id="rail-btn-expand" title="Expand Sidebar (Click to open)">▶</button>
+          <button class="icon-rail-btn" id="rail-btn-search" title="Search Components">🔍</button>
+          <button class="icon-rail-btn" id="rail-btn-add" title="Create Custom Vertex">➕</button>
+        </div>
+
+        <div class="preset-list" id="preset-palette">
+          <!-- Populated dynamically via search in app.js -->
+        </div>
+      </aside>
+
+      <!-- Center Graph Canvas -->
+      <main class="graph-canvas-container" id="graph-container">
+        <!-- Floating Multi-Selection Action Bar -->
+        <div class="multi-select-action-bar" id="multi-select-bar" style="display: none;">
+          <span class="text-xs font-semibold text-muted" id="multi-select-count">2 selected</span>
+          <button class="btn btn-xs btn-primary" id="btn-group-selected">📦 Group Selected</button>
+          <button class="btn btn-xs btn-outline" id="btn-ungroup-selected">🔓 Ungroup Selected</button>
+          <button class="btn btn-xs btn-secondary" id="btn-clear-select">❌ Clear</button>
+        </div>
+
+        <!-- Floating Top-Right Corner Inspector Toggle & Hint -->
+        <div class="canvas-inspector-toggle-container">
+          <span class="hint-pill" id="inspector-hint-pill">💡 Shift+Drag to box-select • Click vertex to edit</span>
+          <button class="btn-inspector-toggle" id="btn-toggle-inspector" title="Toggle Inspector Sidebar">
+            ⚙️ Inspector <span id="inspector-badge" class="badge badge-blue">Off</span>
+          </button>
+        </div>
+      </main>
+
+      <!-- Collapsible Right Inspector Sidebar -->
+      <aside class="inspector-sidebar" id="inspector-container">
+        <!-- Managed by inspector.js -->
+      </aside>
+
+      <!-- Bottom Drawer: Live JSON Viewer -->
+      <div class="json-drawer" id="json-drawer">
+        <div class="json-drawer-header" id="json-drawer-header" title="Drag to resize height">
+          <div class="flex-row gap-2">
+            <span class="text-sm font-semibold">🔮 Live Topology JSON (<code>vertices</code>)</span>
+            <span class="text-xs text-muted">(Drag header to resize)</span>
+          </div>
+          <div class="flex-row gap-2">
+            <button class="btn btn-xs btn-outline" id="btn-expand-json" title="Expand / Maximize drawer">⛶ Expand</button>
+            <button class="btn btn-xs btn-outline" id="btn-copy-json">📋 Copy JSON</button>
+            <button class="btn-close" id="btn-close-json-drawer">&times;</button>
+          </div>
+        </div>
+        <div class="json-drawer-body">
+          <pre class="json-code-view" id="json-code-output"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

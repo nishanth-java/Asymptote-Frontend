@@ -1,0 +1,409 @@
+{
+  "vertices":[
+    {
+      "id":"EMBED",
+      "type":"EMBEDDING",
+      "host":"192.168.0.90",
+      "port":9032,
+      "internalPort":10032,
+      "params": {
+        "noOfWeightRows": 151936
+      },
+      "edges":["RMS0", "RES0"]
+    },
+    {
+      "id":"RMS0",
+      "type":"RMS",
+      "host":"192.168.0.196",
+      "port":9000,
+      "internalPort":10000,
+      "params":{
+        "noOfLayers": 24
+      },
+      "edges":["K","Q","V"]
+    },
+    {
+      "id":"K",
+      "type":"MatWtK",
+      "host":"192.168.0.90",
+      "port":9001,
+      "internalPort":10001,
+      "params":{
+        "noOfWeightRows":896,
+        "noOfLayers": 24
+      },
+      "edges":["K0","K1"]
+    },
+    {
+      "id":"Q",
+      "type":"MatWt",
+      "host":"192.168.0.83",
+      "port":9027,
+      "internalPort":10027,
+      "params":{
+        "noOfWeightRows":896,
+        "noOfLayers": 24
+      },
+      "edges":["Q_0","Q_1", "Q_2", "Q_3", "Q_4", "Q_5", "Q_6","Q_7","Q_8","Q_9","Q_10", "Q_11", "Q_12", "Q_13"]
+    },
+    {
+      "id":"V",
+      "type":"MatWtV",
+      "host":"192.168.0.98",
+      "port":9028,
+      "internalPort":10028,
+      "params":{
+        "noOfWeightRows":896,
+        "noOfLayers": 24
+      },
+      "edges":["V0","V1"]
+    },
+    {
+      "id":"K0",
+      "type":"K",
+      "host":"192.168.0.196",
+      "port":9049,
+      "internalPort":10043,
+      "params":{
+        "sliceIndex":0,
+        "noOfDimensionHeads":2,
+        "baseValue": 1000000
+      },
+      "edges":["Q_0","Q_1", "Q_2", "Q_3", "Q_4", "Q_5", "Q_6"]
+    },
+    {
+      "id":"K1",
+      "type":"K",
+      "host":"192.168.0.196",
+      "port":9002,
+      "internalPort":10002,
+      "params":{
+        "sliceIndex":1,
+        "noOfDimensionHeads":2,
+        "baseValue": 1000000
+      },
+      "edges":["Q_7","Q_8", "Q_9", "Q_10", "Q_11", "Q_12", "Q_13"]
+    },
+    {
+      "id":"Q_0",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9003,
+      "internalPort":10003,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":0,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      },
+      "edges":["HS0"]
+    },
+    {
+      "id":"Q_1",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9004,
+      "internalPort":10004,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":1,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      },
+      "edges":["HS0"]
+    },
+    {
+      "id":"Q_2",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9005,
+      "internalPort":10005,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":2,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      },
+      "edges":["HS0"]
+    },
+    {
+      "id":"Q_3",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9006,
+      "internalPort":10006,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":3,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_4",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9007,
+      "internalPort":10007,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":4,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_5",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9008,
+      "internalPort":10008,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":5,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_6",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9009,
+      "internalPort":10009,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":6,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+
+    {
+      "id":"Q_7",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9010,
+      "internalPort":10010,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":7,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_8",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9011,
+      "internalPort":10011,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":8,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_9",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9012,
+      "internalPort":10012,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":9,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_10",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9013,
+      "internalPort":10013,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":10,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_11",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9014,
+      "internalPort":10014,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":11,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_12",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9015,
+      "internalPort":10015,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":12,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      }, "edges":["HS0"]
+    },
+    {
+      "id":"Q_13",
+      "type":"Q",
+      "host":"192.168.0.196",
+      "port":9016,
+      "internalPort":10016,
+      "params":{
+        "noOfDimensionHeads":14,
+        "sliceIndex":13,
+        "baseValue": 1000000,
+        "noOfLayers": 24
+      },
+      "edges":["HS0"]
+    },
+    {
+      "id":"V0",
+      "type":"V",
+      "host":"192.168.0.196",
+      "port":9017,
+      "internalPort":10017,
+      "params":{
+        "sliceIndex":0,
+        "noOfDimensionHeads":2
+      },
+      "edges":["Q_0","Q_1", "Q_2", "Q_3", "Q_4", "Q_5", "Q_6"]
+    },
+    {
+      "id":"V1",
+      "type":"V",
+      "host":"192.168.0.196",
+      "port":9018,
+      "internalPort":10018,
+      "params":{
+        "sliceIndex":1,
+        "noOfDimensionHeads":2
+      },
+      "edges":["Q_7","Q_8", "Q_9", "Q_10", "Q_11", "Q_12", "Q_13"]
+    },
+    {
+      "id":"HS0",
+      "type":"HS",
+      "host":"192.168.0.196",
+      "port":9019,
+      "internalPort":10019,
+      "params":{
+        "expectedInputSize":14
+      },
+      "edges":["O"]
+    },
+    {
+      "id":"O",
+      "type":"WO",
+      "host":"192.168.0.86",
+      "port":9020,
+      "internalPort":10020,
+      "params":{
+        "noOfWeightRows":896,
+        "noOfLayers": 24
+      },
+      "edges":["RES0"]
+    },
+    {
+      "id":"RES0",
+      "type":"RES",
+      "host":"192.168.0.196",
+      "port":9021,
+      "internalPort":10021,
+      "edges":["RMS1", "RES1"]
+    },
+    {
+      "id":"RMS1",
+      "type":"RMS",
+      "host":"192.168.0.94",
+      "port":9022,
+      "internalPort":10022,
+      "params":{
+        "noOfLayers": 24
+      },
+      "edges":["GATE","UP"]
+    },
+    {
+      "id":"GATE",
+      "type":"GATE",
+      "host":"192.168.0.238",
+      "port":9023,
+      "internalPort":10023,
+      "params":{
+        "noOfWeightRows":4864,
+        "noOfLayers": 24
+      },
+      "edges":["UP"]
+    },
+    {
+      "id":"UP",
+      "type":"UP",
+      "host":"192.168.0.99",
+      "port":9024,
+      "internalPort":10024,
+      "params":{
+        "noOfWeightRows":4864,
+        "noOfLayers": 24
+      },
+      "edges":["DOWN"]
+    },
+    {
+      "id":"DOWN",
+      "type":"DOWN",
+      "host":"192.168.0.94",
+      "port":9025,
+      "internalPort":10025,
+      "params":{
+        "noOfWeightRows":896,
+        "noOfLayers": 24
+      },
+      "edges":["RES1"]
+    },
+    {
+      "id":"RES1",
+      "type":"RES_POST",
+      "host":"192.168.0.196",
+      "port":9026,
+      "internalPort":10026,
+      "params":{
+        "noOfLayers": 24
+      },
+      "edges":["RMS0","RES0", "finalRMS"]
+    },
+    {
+      "id":"finalRMS",
+      "type":"RMS_final",
+      "host":"192.168.0.196",
+      "port":9030,
+      "internalPort":10030,
+      "edges":["LMHead"]
+    },
+    {
+      "id":"LMHead",
+      "type":"LM_HEAD",
+      "host":"192.168.0.238",
+      "port":9031,
+      "internalPort":10031,
+      "params": {
+        "noOfWeightRows": 151936,
+         "maxNoOfTokens": 30,
+      "eosToken": 151643
+      },
+      "edges":["EMBED"]
+    }
+  ]
+}
