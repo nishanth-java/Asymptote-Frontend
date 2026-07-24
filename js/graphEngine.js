@@ -1,4 +1,18 @@
-// Interactive SVG Canvas Engine with Standard Canvas Panning, Group Side-Panel Inspection & Single Ungroup Button
+/**
+ * =========================================================================================
+ * TOPOLOGY STUDIO - INTERACTIVE GRAPH CANVAS ENGINE
+ * =========================================================================================
+ * File: js/graphEngine.js
+ * SVG & HTML5 Canvas Rendering Engine for LLM Visual Graph Topologies.
+ * 
+ * CORE RESPONSIBILITIES:
+ * 1. Renders individual vertex node cards with assigned Server Host IPs & ports.
+ * 2. Renders collapsed group cards & expanded group bounding containers.
+ * 3. Renders smooth Bezier curve SVG wires representing intertwined data flow edges.
+ * 4. Provides multi-selection marquee box drag, interactive wire drag-connecting,
+ *    and pin reconnection handles.
+ * =========================================================================================
+ */
 
 import { getPresetForType } from './presets.js';
 

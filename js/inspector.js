@@ -1,4 +1,12 @@
-// Inspector Panel module with custom type creation, key::value param builder & single/group inspection
+/**
+ * =========================================================================================
+ * TOPOLOGY STUDIO - INSPECTOR SIDEBAR COMPONENT
+ * =========================================================================================
+ * File: js/inspector.js
+ * Side-Panel Component for inspecting and editing individual vertices, assigned server IPs,
+ * external & internal port bindings, parameter maps, and group cards.
+ * =========================================================================================
+ */
 
 import { VERTEX_PRESETS, getPresetForType } from './presets.js';
 
@@ -367,9 +375,7 @@ export function renderInspector(
 
   // Delete Vertex
   container.querySelector('#insp-delete-btn').addEventListener('click', () => {
-    if (confirm(`Are you sure you want to delete vertex "${selectedVertex.id}"?`)) {
-      onDeleteVertex(selectedVertex.id);
-    }
+    onDeleteVertex(selectedVertex.id);
   });
 
   // Add Param Button (supports key::value syntax)
@@ -379,15 +385,15 @@ export function renderInspector(
     if (!raw) return;
 
     let key = '';
-    let valStr = '';
+    let valStr = '0';
 
     if (raw.includes('::')) {
       const parts = raw.split('::');
       key = parts[0].trim();
-      valStr = parts[1] ? parts[1].trim() : '';
+      valStr = parts[1] ? parts[1].trim() : '0';
     } else {
       key = raw;
-      valStr = prompt(`Enter value for "${key}":`, "0") || "0";
+      valStr = '0';
     }
 
     if (!key) return;
