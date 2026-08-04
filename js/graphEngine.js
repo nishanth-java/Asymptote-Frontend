@@ -338,6 +338,16 @@ export class GraphEngine {
         <div class="port port-out" data-id="${v.id}" title="Drag wire to connect output"></div>
       `;
 
+      nodeEl.addEventListener('mouseenter', () => {
+        this.highlightConnections(v.id);
+      });
+
+      nodeEl.addEventListener('mouseleave', () => {
+        if (!this.selectedVertexIds.has(v.id)) {
+          this.clearWireHighlights();
+        }
+      });
+
       nodeEl.addEventListener('mousedown', (e) => {
         if (e.target.classList.contains('port-out')) return;
         e.stopPropagation();
@@ -391,12 +401,12 @@ export class GraphEngine {
       const sourcePos = this.getVisualPosition(edge.sourceId);
       const targetPos = this.getVisualPosition(edge.targetId);
 
-      const sourceWidth = edge.sourceId.startsWith('group-') ? 210 : 200;
+      const sourceWidth = edge.sourceId.startsWith('group-') ? 210 : 192;
       const sourcePortX = sourcePos.x + sourceWidth;
-      const sourcePortY = sourcePos.y + 36;
+      const sourcePortY = sourcePos.y + 33;
 
       const targetPortX = targetPos.x;
-      const targetPortY = targetPos.y + 36;
+      const targetPortY = targetPos.y + 33;
 
       const isLoopback = sourcePortX >= targetPortX;
       const pathEndX = targetPortX - 10;
@@ -414,6 +424,9 @@ export class GraphEngine {
       edgeIdx++;
 
       const edgeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      edgeGroup.setAttribute('class', 'edge-group');
+      edgeGroup.dataset.source = edge.sourceId;
+      edgeGroup.dataset.target = edge.targetId;
 
       // Wire Bezier Curve Path
       const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -423,13 +436,13 @@ export class GraphEngine {
       pathEl.setAttribute('marker-end', `url(#arrowhead-${colorObj.name})`);
 
       // Target Reconnection Handle Pin near arrowhead
-      const handleX = targetPortX - 24;
+      const handleX = targetPortX - 22;
       const handleY = targetPortY;
 
       const rewireHandleEl = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       rewireHandleEl.setAttribute('cx', handleX);
       rewireHandleEl.setAttribute('cy', handleY);
-      rewireHandleEl.setAttribute('r', 6);
+      rewireHandleEl.setAttribute('r', 5);
       rewireHandleEl.setAttribute('class', 'edge-rewire-handle');
       rewireHandleEl.style.fill = colorObj.color;
       rewireHandleEl.setAttribute('title', `Drag pin to reconnect ${edge.sourceId} → ${edge.targetId}`);
@@ -463,6 +476,34 @@ export class GraphEngine {
     });
   }
 
+  highlightConnections(nodeId) {
+    if (!nodeId) {
+      this.clearWireHighlights();
+      return;
+    }
+
+    const allEdgeGroups = this.edgesGroup.querySelectorAll('.edge-group');
+    allEdgeGroups.forEach(g => {
+      const src = g.dataset.source;
+      const tgt = g.dataset.target;
+      if (src === nodeId || tgt === nodeId) {
+        g.classList.add('highlighted');
+        g.classList.remove('dimmed');
+      } else {
+        g.classList.remove('highlighted');
+        g.classList.add('dimmed');
+      }
+    });
+  }
+
+  clearWireHighlights() {
+    const allEdgeGroups = this.edgesGroup.querySelectorAll('.edge-group');
+    allEdgeGroups.forEach(g => {
+      g.classList.remove('highlighted');
+      g.classList.remove('dimmed');
+    });
+  }
+
   getEdgeColor(sourceId, targetId, index) {
     let str = sourceId + '->' + targetId;
     let hash = 0;
@@ -478,23 +519,23 @@ export class GraphEngine {
     const dx = x2 - x1;
 
     if (!isLoopback) {
-      if (dx > 380) {
-        // Multi-span arc with vertical index offset to prevent line overlaps
+      if (dx > 360) {
+        // Multi-span arc with vertical index offset to clear intermediate nodes
         const isUpperHalf = (y1 + y2) / 2 < 340;
-        const arcOffset = (edgeIdx % 5) * 28;
+        const arcOffset = (edgeIdx % 6) * 32;
         const arcY = isUpperHalf 
-          ? Math.min(y1, y2) - Math.min(140, (dx - 260) * 0.35) - arcOffset
-          : Math.max(y1, y2) + Math.min(140, (dx - 260) * 0.35) + arcOffset;
+          ? Math.min(y1, y2) - Math.min(180, (dx - 220) * 0.4) - arcOffset
+          : Math.max(y1, y2) + Math.min(180, (dx - 220) * 0.4) + arcOffset;
 
-        const cx1 = x1 + dx * 0.3;
+        const cx1 = x1 + dx * 0.35;
         const cy1 = arcY;
-        const cx2 = x2 - dx * 0.3;
+        const cx2 = x2 - dx * 0.35;
         const cy2 = arcY;
 
         return `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
       } else {
         // Clean adjacent horizontal Bezier curve
-        const ctrlDx = Math.max(60, dx * 0.45);
+        const ctrlDx = Math.max(70, dx * 0.48);
         const cx1 = x1 + ctrlDx;
         const cy1 = y1;
         const cx2 = x2 - ctrlDx;
@@ -504,12 +545,12 @@ export class GraphEngine {
       }
     } else {
       // Loopback curve below nodes
-      const loopHeight = Math.min(160, Math.max(90, Math.abs(dx) * 0.15 + (edgeIdx % 4) * 20));
+      const loopHeight = Math.min(180, Math.max(100, Math.abs(dx) * 0.18 + (edgeIdx % 4) * 24));
       const arcY = Math.max(y1, y2) + loopHeight;
 
-      const cx1 = x1 + 80;
+      const cx1 = x1 + 90;
       const cy1 = arcY;
-      const cx2 = x2 - 80;
+      const cx2 = x2 - 90;
       const cy2 = arcY;
 
       return `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;

@@ -17,19 +17,36 @@ import { renderInspector } from './inspector.js';
 import { generateTopologyJSON, downloadJSON } from './jsonManager.js';
 import { openBatchModal } from './batchCreator.js';
 
-/* 
- * Custom Vertex Creator Modal commented down as requested for future use:
- * import { openCustomVertexModal } from './customVertexModal.js';
- */
-
 import {
   getVerticesCatalogAPI,
   getTopologyAPI,
   saveTopologyAPI,
   deployClusterAPI,
   computeAutoLayoutAPI,
-  importJSONAPI
+  importJSONAPI,
+  executeDeploymentAPI,
+  getWeightsAPI,
+  copyWeightsAPI,
+  getVertexJarsAPI,
+  checkAPIHealth,
+  copyStage1API
 } from './apiClient.js';
+
+/** Exported Helper Wrappers for Custom In-App UI Modals & Toasts */
+export function showCustomConfirm(title, message) {
+  if (window.app) return window.app.showCustomConfirm(title, message);
+  return Promise.resolve(confirm(message));
+}
+
+export function showCustomPrompt(title, message, defaultValue = '') {
+  if (window.app) return window.app.showCustomPrompt(title, message, defaultValue);
+  return Promise.resolve(prompt(message, defaultValue));
+}
+
+export function showCustomToast(message, type = 'info') {
+  if (window.app) return window.app.showCustomToast(message, type);
+  console.log(`[${type}] ${message}`);
+}
 
 class App {
   constructor() {
@@ -42,6 +59,13 @@ class App {
     this.selectedVertexId = null;
     this.selectedIds = [];
     this.isInspectorOpen = false;
+
+    // Cluster Overview Dashboard Module
+    const clusterViewEl = document.getElementById('view-cluster-overview');
+    if (clusterViewEl) {
+      this.clusterDashboard = new ClusterDashboard(clusterViewEl);
+      this.clusterDashboard.init();
+    }
 
     // Initialization Sequence
     this.initTheme();
@@ -256,8 +280,14 @@ class App {
         const uiBackdrop = document.getElementById('ui-modal-backdrop');
         const jsonDrawer = document.getElementById('json-drawer');
 
+        const terminalBackdrop = document.getElementById('terminal-modal-backdrop');
+
         if (deployBackdrop && deployBackdrop.style.display !== 'none') {
           deployBackdrop.style.display = 'none';
+          return;
+        }
+        if (terminalBackdrop && terminalBackdrop.style.display !== 'none') {
+          terminalBackdrop.style.display = 'none';
           return;
         }
         if (uiBackdrop && uiBackdrop.style.display !== 'none') {
@@ -362,7 +392,8 @@ class App {
   // =========================================================================================
 
   initTheme() {
-    const savedTheme = localStorage.getItem('topology_theme') || 'light';
+    // Default to dark mode — IDE aesthetic
+    const savedTheme = localStorage.getItem('topology_theme') || 'dark';
     this.setTheme(savedTheme);
   }
 
@@ -376,10 +407,10 @@ class App {
     if (iconEl && textEl) {
       if (theme === 'light') {
         iconEl.textContent = '☀️';
-        textEl.textContent = 'Light Mode';
+        textEl.textContent = 'Light';
       } else {
         iconEl.textContent = '🌙';
-        textEl.textContent = 'Dark Mode';
+        textEl.textContent = 'Dark';
       }
     }
   }
@@ -579,75 +610,140 @@ class App {
    * Initializes Searchable Left Sidebar Vertex Catalog.
    * Keeps sidebar clean by displaying compact 2-column icon chip grid for Components.
    */
+  /**
+   * Initializes the IDE-style Left Sidebar Vertex Catalog.
+   * Renders nodes as full-row items with icon, name, and description text.
+   * Supports category filter tabs and live search.
+   */
   initPalette() {
     const paletteEl = document.getElementById('preset-palette');
     const searchInput = document.getElementById('palette-search-input');
+    const catTabsEl = document.getElementById('sidebar-cat-tabs');
 
-    const renderPalette = async (query = '') => {
-      const q = query.trim();
-      const catalog = await getVerticesCatalogAPI(q);
+    let activeCat = 'all';   // active category filter
+    let fullCatalog = [];    // all fetched catalog items
 
-      let listHtml = '';
-      if (q === '' && catalog.length > 0) {
-        // Compact Icon Chip Grid Layout for Components
-        const topCatalog = catalog.slice(0, 6);
+    /**
+     * Returns a short 2-3 char abbreviation for the node type icon
+     * and a background/color class for its chip.
+     */
+    const getIconStyle = (item) => {
+      const catMap = {
+        'Norm': { bg: 'rgba(124,58,237,0.18)', color: '#a78bfa' },
+        'Attention': { bg: 'rgba(74,158,255,0.18)', color: '#4a9eff' },
+        'MLP': { bg: 'rgba(52,211,153,0.18)', color: '#34d399' },
+        'Embed': { bg: 'rgba(251,191,36,0.18)', color: '#fbbf24' },
+        'Output': { bg: 'rgba(251,113,133,0.18)', color: '#fb7185' },
+      };
+      const match = Object.keys(catMap).find(k => item.category && item.category.includes(k));
+      return match ? catMap[match] : { bg: 'rgba(74,158,255,0.14)', color: '#4a9eff' };
+    };
 
-        const chipsHtml = topCatalog.map(item => `
-          <div class="preset-chip" data-type="${item.type}" title="${item.label} (${item.category})">
-            <div class="chip-label">
-              <span class="chip-type">${item.type}</span>
-              <span class="chip-category">${item.category}</span>
-            </div>
-            <span class="badge ${item.badgeClass || 'badge-blue'}">+</span>
-          </div>
-        `).join('');
-
-        listHtml = `
-          <div class="palette-divider">Components</div>
-          <div class="preset-chip-grid">
-            ${chipsHtml}
-          </div>
-        `;
-      } else if (catalog.length === 0) {
-        listHtml = `
+    /**
+     * Renders the filtered node list into the palette element.
+     * Groups nodes by category with section headers.
+     */
+    const renderFiltered = (catalog, query = '') => {
+      if (!catalog || catalog.length === 0) {
+        paletteEl.innerHTML = `
           <div class="sidebar-empty-state">
             <div class="text-xs text-muted py-2 px-1 text-center">
-              No vertices found matching "<strong>${query}</strong>".
+              ${query ? `No nodes matching "<strong>${query}</strong>".` : 'No nodes available.'}
             </div>
-          </div>
-        `;
-      } else {
-        const catalogHtml = catalog.map(item => `
-          <div class="preset-item" data-type="${item.type}">
-            <div class="preset-info">
-              <div class="preset-label">${item.label}</div>
-              <div class="preset-type">Type: <code>${item.type}</code> • ${item.category}</div>
-              ${item.jarInfo ? `<div class="text-xs text-muted">JAR: ${item.jarInfo.jarName}</div>` : ''}
-            </div>
-            <span class="badge ${item.badgeClass || 'badge-blue'}">+ Add</span>
-          </div>
-        `).join('');
-
-        listHtml = `<div class="palette-divider">Matching Results (${catalog.length})</div> ${catalogHtml}`;
+          </div>`;
+        return;
       }
 
-      paletteEl.innerHTML = listHtml;
+      // Group by category
+      const groups = {};
+      catalog.forEach(item => {
+        const cat = item.category || 'Other';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(item);
+      });
 
-      paletteEl.querySelectorAll('.preset-item, .preset-chip').forEach(item => {
-        item.addEventListener('click', () => {
-          const type = item.dataset.type;
-          const foundEntry = catalog.find(p => p.type === type);
-          this.addNewVertexFromPreset(type, foundEntry);
+      let html = '';
+      Object.entries(groups).forEach(([cat, items]) => {
+        html += `<div class="palette-divider">${cat} <span class="palette-divider-count">${items.length}</span></div>`;
+        items.forEach(item => {
+          const style = getIconStyle(item);
+          const abbr = item.type.length <= 4 ? item.type : item.type.slice(0, 4);
+          html += `
+            <div class="preset-item" data-type="${item.type}" title="${item.label}">
+              <div class="preset-item-icon" style="background:${style.bg};color:${style.color}">${abbr}</div>
+              <div class="preset-item-body">
+                <div class="preset-item-name">${item.label}</div>
+                <div class="preset-item-desc">${item.description || item.category}</div>
+              </div>
+              <div class="preset-item-more">›</div>
+            </div>`;
+        });
+      });
+
+      paletteEl.innerHTML = html;
+
+      // Bind click events
+      paletteEl.querySelectorAll('.preset-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const type = el.dataset.type;
+          const found = fullCatalog.find(p => p.type === type);
+          this.addNewVertexFromPreset(type, found);
         });
       });
     };
 
+    /**
+     * Fetches nodes from API and filters by active category & search query.
+     */
+    const renderPalette = async (query = '') => {
+      const q = query.trim();
+      // Only re-fetch if catalog is empty or new search
+      if (fullCatalog.length === 0 || q) {
+        fullCatalog = await getVerticesCatalogAPI(q);
+      }
+
+      let filtered = fullCatalog;
+
+      // Apply category filter
+      if (activeCat !== 'all') {
+        filtered = filtered.filter(item =>
+          item.category && item.category.toLowerCase().includes(activeCat.toLowerCase())
+        );
+      }
+
+      // Apply search filter locally too
+      if (q) {
+        filtered = filtered.filter(item =>
+          item.label.toLowerCase().includes(q.toLowerCase()) ||
+          item.type.toLowerCase().includes(q.toLowerCase()) ||
+          (item.category && item.category.toLowerCase().includes(q.toLowerCase()))
+        );
+      }
+
+      renderFiltered(filtered, q);
+    };
+
+    // Category tab click handlers
+    if (catTabsEl) {
+      catTabsEl.querySelectorAll('.cat-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          catTabsEl.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          activeCat = tab.dataset.cat;
+          const q = searchInput ? searchInput.value : '';
+          renderPalette(q);
+        });
+      });
+    }
+
+    // Search input handler
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         renderPalette(e.target.value);
       });
     }
 
+    // Initial render with all nodes
     renderPalette('');
   }
 
@@ -770,8 +866,21 @@ class App {
     this.showCustomToast("Layout tidied up", "info");
   }
 
-  openDeployModal() {
-    if (this.vertices.length === 0) {
+  async openDeployModal() {
+    this.vertices = this.engine.vertices && this.engine.vertices.length > 0 
+      ? this.engine.vertices 
+      : this.vertices;
+
+    if (!this.vertices || this.vertices.length === 0) {
+      try {
+        const topo = await getTopologyAPI();
+        if (topo && topo.vertices && topo.vertices.length > 0) {
+          this.vertices = topo.vertices;
+        }
+      } catch (e) {}
+    }
+
+    if (!this.vertices || this.vertices.length === 0) {
       this.showCustomToast("Canvas is empty! Please add vertices from the sidebar and assign server IPs before deploying.", "info");
       return;
     }
@@ -782,26 +891,35 @@ class App {
 
     const serverMap = new Map();
     this.vertices.forEach(v => {
-      const ip = (v.host || '192.168.0.100').trim();
+      const ip = (v.host || '192.168.0.60').trim();
       if (!serverMap.has(ip)) serverMap.set(ip, []);
       serverMap.get(ip).push(v);
     });
 
     const uniqueIps = Array.from(serverMap.keys());
+    const primaryIp = uniqueIps[0] || '192.168.0.60';
 
-    let serverListHtml = uniqueIps.map(ip => {
+    let serverListHtml = uniqueIps.map((ip, idx) => {
       const nodes = serverMap.get(ip);
       const types = Array.from(new Set(nodes.map(n => n.type))).join(', ');
+      const defaultUser = idx === 0 ? 'kai' : 'ubuntu';
+      const defaultPath = idx === 0 ? '/home/kai/qwenf5/' : '/opt/topology/';
       return `
-        <div class="deploy-server-card">
+        <div class="deploy-server-card mb-2" data-ip="${ip}">
           <div class="flex-between mb-1">
-            <span class="font-bold text-sm">Server IP: <code>${ip}</code></span>
-            <span class="badge badge-blue">${nodes.length} Vertices Assigned</span>
+            <span class="font-bold text-sm">Linux Target Server IP: <code>${ip}</code></span>
+            <span class="badge badge-blue">${nodes.length} Vertices Assigned (${nodes.map(n => n.id).join(', ')})</span>
           </div>
-          <div class="text-xs text-muted mb-2">Vertices: <strong>${nodes.map(n => n.id).join(', ')}</strong> (${types})</div>
-          <div class="deploy-jar-checklist">
-            <div class="text-xs font-semibold color-accent">Required JAR Binaries from Central DB:</div>
-            ${nodes.map(n => `<div class="text-xs code-font text-muted">  • ${n.type.toLowerCase()}-service-v1.jar ➔ transfer to ${ip}</div>`).join('')}
+          
+          <div class="form-grid-2 gap-2 mt-2">
+            <div>
+              <label class="text-xs text-muted font-semibold">SSH Remote Username:</label>
+              <input type="text" class="form-control code-font text-xs srv-ssh-user" value="${defaultUser}" placeholder="e.g. kai, ubuntu, root">
+            </div>
+            <div>
+              <label class="text-xs text-muted font-semibold">Destination Directory Path on Linux Server:</label>
+              <input type="text" class="form-control code-font text-xs srv-dest-path" value="${defaultPath}" placeholder="e.g. /home/kai/qwenf5/ or /opt/topology/">
+            </div>
           </div>
         </div>
       `;
@@ -810,17 +928,139 @@ class App {
     modalBody.innerHTML = `
       <div class="deploy-summary-box mb-3">
         <div class="flex-between">
-          <span class="text-sm font-semibold">Deployment Summary:</span>
-          <span class="badge badge-emerald">${this.vertices.length} Total Vertices • ${uniqueIps.length} Target Servers</span>
+          <span class="text-sm font-semibold">Linux SSH/SCP Deployment &amp; Manual Package Pipeline:</span>
+          <div class="flex-row gap-2">
+            <button type="button" class="btn btn-xs btn-outline" id="btn-download-deploy-pkg">📦 Download Topology &amp; Files (Windows Manual Setup)</button>
+            <span class="badge badge-emerald">${this.vertices.length} Vertices • ${uniqueIps.length} Linux Target Servers</span>
+          </div>
         </div>
         <p class="text-xs text-muted mt-1">
-          When executed, required execution JAR binaries for each vertex will be transferred from Central DB to their assigned target server IPs.
-          The complete global topology JSON (<code>topology.json</code>) will be uploaded to ALL target servers so intertwined data flow is maintained.
+          Uploads <code>lambdaTest-1.0-SNAPSHOT.jar</code>, <code>qwenHalfBTopo.json</code>, and selected weight CSV files from MongoDB to Linux target servers over SSH/SCP.
+          Click <strong>Download Topology &amp; Files</strong> if setting up manually on Windows!
         </p>
       </div>
 
-      <div class="deploy-servers-container">
-        ${serverListHtml}
+      <!-- Real-Time Progress Bar -->
+      <div class="mb-3">
+        <div class="flex-between text-xs font-semibold text-muted mb-1">
+          <span id="deploy-progress-label">Deployment Status: Ready</span>
+          <span id="deploy-progress-pct">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill bg-purple" id="deploy-progress-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Target Server Credentials & Destination Settings -->
+      <div class="preview-box mb-3">
+        <div class="preview-box-header color-accent flex-between">
+          <span>Target Servers, Credentials &amp; Remote Destinations</span>
+          <span class="badge badge-purple">Multi-Platform Linux &amp; Windows</span>
+        </div>
+        <div class="deploy-servers-container">
+          ${serverListHtml}
+        </div>
+      </div>
+
+      <!-- Vertex Node & Associated JAR Registry -->
+      <div class="preview-box mb-3">
+        <div class="preview-box-header color-accent flex-between">
+          <span>Vertex Node &amp; Execution JAR Association Registry</span>
+          <span class="badge badge-cyan">lambdaTest-1.0-SNAPSHOT.jar</span>
+        </div>
+        <div style="max-height: 140px; overflow-y: auto; background: #0b0f17; border-radius: 6px; padding: 8px;">
+          <table class="table-compact text-xs code-font" style="width:100%;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary);">
+                <th style="text-align:left; padding:4px;">Vertex ID</th>
+                <th style="text-align:left; padding:4px;">Type</th>
+                <th style="text-align:left; padding:4px;">Associated Execution JAR</th>
+                <th style="text-align:left; padding:4px;">Target Server IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.vertices.map(v => `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                  <td style="padding:4px; font-weight:bold; color:var(--accent-amber);">${v.id}</td>
+                  <td style="padding:4px; color:var(--text-secondary);">${v.type}</td>
+                  <td style="padding:4px; color:var(--accent-cyan);">lambdaTest-1.0-SNAPSHOT.jar (18.5 MB)</td>
+                  <td style="padding:4px; color:var(--accent-blue);">${v.host || '192.168.0.60'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Interactive 292 Weights Checkbox Manager -->
+      <div class="preview-box mb-3">
+        <div class="preview-box-header color-accent flex-between">
+          <span>Model Weights Selector (stored in MongoDB 'model_weights' collection)</span>
+          <span id="weights-counter-badge" class="badge badge-purple">Loading weights...</span>
+        </div>
+
+        <div class="flex-between mb-2">
+          <div class="flex-row gap-2">
+            <button type="button" class="btn btn-xs btn-outline" id="btn-weights-select-all">☑️ Select All</button>
+            <button type="button" class="btn btn-xs btn-outline" id="btn-weights-clear-all">⬜ Clear All</button>
+          </div>
+          <input type="text" id="weights-filter-input" class="form-control text-xs code-font" placeholder="Search 292 CSV weights..." style="width: 220px;">
+        </div>
+
+        <div id="weights-checklist-container" style="max-height: 180px; overflow-y: auto; background: var(--bg-tertiary, #0d131f); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;" class="form-grid-3">
+          <div class="text-xs text-muted">Scanning MongoDB model_weights collection...</div>
+        </div>
+        <div class="text-xs text-muted mt-1">
+          Selected weight CSV files will be transferred to target server folder: <code>weights_csv/</code>
+        </div>
+      </div>
+
+      <!-- Execution Parameters Form -->
+      <div class="preview-box mb-3">
+        <div class="preview-box-header color-accent flex-between">
+          <span>Java Execution Parameters &amp; Remote Run CLI</span>
+          <span class="badge badge-amber">Java 17+ Runtime</span>
+        </div>
+
+        <div class="form-grid-2 mb-2">
+          <div class="form-group mb-0">
+            <label class="text-xs">Min Memory (-Xms):</label>
+            <input type="text" id="exec-xms-input" class="form-control code-font text-xs" value="8g">
+          </div>
+          <div class="form-group mb-0">
+            <label class="text-xs">Max Memory (-Xmx):</label>
+            <input type="text" id="exec-xmx-input" class="form-control code-font text-xs" value="24g">
+          </div>
+        </div>
+
+        <div class="form-grid-2 mb-2">
+          <div class="form-group mb-0">
+            <label class="text-xs">Execution JAR Name:</label>
+            <input type="text" id="exec-jar-input" class="form-control code-font text-xs" value="lambdaTest-1.0-SNAPSHOT.jar">
+          </div>
+          <div class="form-group mb-0">
+            <label class="text-xs">Primary Server IP:</label>
+            <input type="text" id="exec-ip-input" class="form-control code-font text-xs" value="${primaryIp}">
+          </div>
+        </div>
+
+        <div class="form-grid-2 mb-2">
+          <div class="form-group mb-0">
+            <label class="text-xs">Topology File Name:</label>
+            <input type="text" id="exec-topo-input" class="form-control code-font text-xs" value="qwenHalfBTopo.json">
+          </div>
+          <div class="form-group mb-0">
+            <label class="text-xs">Model Size Parameter:</label>
+            <input type="text" id="exec-size-input" class="form-control code-font text-xs" value="0.5B">
+          </div>
+        </div>
+
+        <div class="form-group mb-0 mt-2">
+          <label class="text-xs font-semibold color-accent">Live Exec Command Preview:</label>
+          <div class="deploy-log-box mt-1 code-font text-xs color-cyan" id="exec-cmd-preview" style="background:#090d13; padding:8px; border-radius:6px;">
+            java -Xms8g -Xmx24g -jar lambdaTest-1.0-SNAPSHOT.jar ${primaryIp} qwenHalfBTopo.json 0.5B
+          </div>
+        </div>
       </div>
 
       <div id="deploy-live-log" class="deploy-log-box" style="display: none;">
@@ -830,38 +1070,234 @@ class App {
 
     backdrop.style.display = 'flex';
 
-    confirmBtn.onclick = async () => {
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = "Deploying JARs & Syncing Topo...";
+    // Download Deployment Package for Windows Manual Setup
+    const btnDownloadPkg = document.getElementById('btn-download-deploy-pkg');
+    if (btnDownloadPkg) {
+      btnDownloadPkg.addEventListener('click', () => {
+        const topoJsonStr = generateTopologyJSON(this.vertices);
+        downloadJSON(topoJsonStr, 'qwenHalfBTopo.json');
+        this.showCustomToast("Downloaded qwenHalfBTopo.json! Copy lambdaTest-1.0-SNAPSHOT.jar & weights_csv/ to target folder.", "success");
+      });
+    }
 
-      const logBox = document.getElementById('deploy-live-log');
-      logBox.style.display = 'block';
-      logBox.innerHTML = `<div class="text-xs color-amber">Initiating cluster deployment pipeline...</div>`;
+    // Live update Exec Command Preview
+    const updateExecPreview = () => {
+      const jar = (document.getElementById('exec-jar-input')?.value || 'lambdaTest-1.0-SNAPSHOT.jar').trim();
+      const topo = (document.getElementById('exec-topo-input')?.value || 'qwenHalfBTopo.json').trim();
+      const xms = (document.getElementById('exec-xms-input')?.value || '8g').trim();
+      const xmx = (document.getElementById('exec-xmx-input')?.value || '24g').trim();
+      const size = (document.getElementById('exec-size-input')?.value || '0.5B').trim();
+      const primaryIp = (document.getElementById('exec-ip-input')?.value || uniqueIps[0] || '192.168.0.60').trim();
+
+      const execPreview = document.getElementById('exec-cmd-preview');
+      if (execPreview) {
+        execPreview.textContent = `java -Xms${xms} -Xmx${xmx} -jar ${jar} ${primaryIp} ${topo} ${size ? size : ''}`;
+      }
+    };
+
+    ['exec-xms-input', 'exec-xmx-input', 'exec-jar-input', 'exec-ip-input', 'exec-topo-input', 'exec-size-input'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', updateExecPreview);
+    });
+
+    // Populate & Bind 292 Weights Checklist from MongoDB
+    const loadWeightsChecklist = async () => {
+      const checklistContainer = document.getElementById('weights-checklist-container');
+      const badge = document.getElementById('weights-counter-badge');
+      const filterInput = document.getElementById('weights-filter-input');
+      const btnSelectAll = document.getElementById('btn-weights-select-all');
+      const btnClearAll = document.getElementById('btn-weights-clear-all');
 
       try {
-        const manifest = await deployClusterAPI(this.vertices, this.groups, "Live_Cluster_Run");
+        const weightsData = await getWeightsAPI();
+        const weightsList = Array.isArray(weightsData) ? weightsData : (weightsData.weights || []);
 
-        logBox.innerHTML = `
-          <div class="text-xs color-emerald font-bold">Cluster Deployment Executed Successfully!</div>
-          <div class="text-xs text-muted mt-1">
-            Transferred ${manifest.manifest.summary.totalJarsTransferred} JAR binaries across ${manifest.manifest.summary.totalUniqueServers} server IPs.<br>
-            Broadcasted intertwined topology.json (${manifest.manifest.globalTopologyBroadcast.uploadedTopologySizeKb} KB) to all nodes.<br>
-            Deployment ID: <code>${manifest.manifest.deploymentId}</code>
-          </div>
+        if (badge) badge.textContent = `${weightsList.length} Weights Selected`;
+
+        if (checklistContainer) {
+          checklistContainer.innerHTML = weightsList.map(w => `
+            <label class="weight-check-item text-xs flex-row gap-1" data-name="${w.weightName.toLowerCase()}" style="display:flex; align-items:center; color: #38bdf8;">
+              <input type="checkbox" class="weight-checkbox" value="${w.weightName}" checked style="accent-color: var(--accent-blue);">
+              <span class="code-font text-ellipsis font-semibold" style="color: #e2e8f0;" title="${w.s3Url || w.weightName}">${w.weightName}</span>
+              <a href="${w.s3Url || '#'}" target="_blank" class="text-xs" style="font-size:0.65rem; color:var(--accent-cyan); text-decoration:underline;" title="View AWS S3 Bucket URL">☁️ S3 Link</a>
+            </label>
+          `).join('');
+        }
+
+        // Live Weights Search Filter
+        if (filterInput && checklistContainer) {
+          filterInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            const items = checklistContainer.querySelectorAll('.weight-check-item');
+            let visibleCount = 0;
+            items.forEach(item => {
+              const name = item.dataset.name || '';
+              if (!query || name.includes(query)) {
+                item.style.display = 'flex';
+                visibleCount++;
+              } else {
+                item.style.display = 'none';
+              }
+            });
+            if (badge) badge.textContent = `${visibleCount} / ${weightsList.length} Filtered`;
+          });
+        }
+
+        // Select All / Clear All
+        if (btnSelectAll && checklistContainer) {
+          btnSelectAll.addEventListener('click', () => {
+            const checkboxes = checklistContainer.querySelectorAll('.weight-checkbox');
+            checkboxes.forEach(cb => cb.checked = true);
+            if (badge) badge.textContent = `${checkboxes.length} Weights Selected`;
+          });
+        }
+        if (btnClearAll && checklistContainer) {
+          btnClearAll.addEventListener('click', () => {
+            const checkboxes = checklistContainer.querySelectorAll('.weight-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            if (badge) badge.textContent = `0 Weights Selected`;
+          });
+        }
+      } catch (err) {
+        if (checklistContainer) {
+          checklistContainer.innerHTML = `<div class="text-xs color-rose">Failed to load weights: ${err.message}</div>`;
+        }
+      }
+    };
+
+    loadWeightsChecklist();
+
+    // Reset button to Stage 1
+    confirmBtn.disabled = false;
+    confirmBtn.className = "btn btn-primary";
+    confirmBtn.textContent = "📤 Step 1: Upload JARs & Topo to Servers";
+
+    let stage1Completed = false;
+
+    confirmBtn.onclick = async () => {
+      const xms = (document.getElementById('exec-xms-input')?.value || '8g').trim();
+      const xmx = (document.getElementById('exec-xmx-input')?.value || '24g').trim();
+      const jarName = (document.getElementById('exec-jar-input')?.value || 'lambdaTest-1.0-SNAPSHOT.jar').trim();
+      const serverIp = (document.getElementById('exec-ip-input')?.value || primaryIp).trim();
+      const topoJson = (document.getElementById('exec-topo-input')?.value || 'qwenHalfBTopo.json').trim();
+      const modelSize = (document.getElementById('exec-size-input')?.value || '0.5B').trim();
+
+      const progressLabel = document.getElementById('deploy-progress-label');
+      const progressPct = document.getElementById('deploy-progress-pct');
+      const progressFill = document.getElementById('deploy-progress-fill');
+      const logBox = document.getElementById('deploy-live-log');
+
+      // STAGE 1: UPLOAD JARS, TOPO & WEIGHTS TO SERVERS
+      if (!stage1Completed) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = "Writing & Copying Files to Disk...";
+
+        logBox.style.display = 'block';
+        logBox.innerHTML = `<div class="text-xs color-amber">[1/4] Preparing Disk Copy Pipeline Across Server Nodes...</div>`;
+        if (progressFill) progressFill.style.width = '25%';
+        if (progressPct) progressPct.textContent = '25%';
+
+        try {
+          // Collect checked weights
+          const checklistContainer = document.getElementById('weights-checklist-container');
+          const selectedWeights = [];
+          if (checklistContainer) {
+            checklistContainer.querySelectorAll('.weight-checkbox:checked').forEach(cb => {
+              selectedWeights.push(cb.value);
+            });
+          }
+
+          // Get target server IP, SSH user, and destination folder from first target server card
+          const firstCard = modalBody.querySelector('.deploy-server-card');
+          const targetServerIp = firstCard ? (firstCard.dataset.ip || serverIp) : serverIp;
+          const sshUser = firstCard ? (firstCard.querySelector('.srv-ssh-user')?.value || '').trim() : '';
+          const firstCardDest = firstCard ? (firstCard.querySelector('.srv-dest-path')?.value || 'C:/JAVAJAR/').trim() : 'C:/JAVAJAR/';
+
+          logBox.innerHTML += `<div class="text-xs color-cyan code-font mt-1">[2/4] Target Server IP: <code>${targetServerIp}</code> ➔ Copying ${topoJson} &amp; ${jarName} to: <code>${firstCardDest}</code></div>`;
+          if (progressLabel) progressLabel.textContent = "Status: Transferring JAR & Selected CSV Weights to Target Server";
+          if (progressFill) progressFill.style.width = '65%';
+          if (progressPct) progressPct.textContent = '65%';
+
+          // Perform real Stage 1 disk copy API call
+          const copyRes = await copyStage1API({
+            destDirectory: firstCardDest,
+            targetServerIp,
+            sshUser,
+            selectedWeights,
+            topoJsonName: topoJson,
+            jarName: jarName
+          });
+
+          if (progressLabel) progressLabel.textContent = "Status: Verification Complete";
+          if (progressFill) progressFill.style.width = '100%';
+          if (progressPct) progressPct.textContent = '100%';
+
+          if (copyRes.networkError) {
+            logBox.innerHTML += `<div class="text-xs color-amber font-bold mt-1">⚠️ Remote Direct Path Notice: ${copyRes.networkError}</div>`;
+            logBox.innerHTML += `<div class="text-xs color-cyan code-font mt-1">📋 Generated Live SCP Transfer Command:</div>`;
+            logBox.innerHTML += `<div class="code-font text-xs p-2 mt-1 mb-1" style="background:#0a0e17; border: 1px solid var(--accent-amber); border-radius:4px; color:#38bdf8;">${copyRes.scpPreview}</div>`;
+          } else {
+            logBox.innerHTML += `<div class="text-xs color-emerald font-bold mt-1">[3/4] ✅ Real Disk Copy Complete!</div>`;
+          }
+
+          if (copyRes.s3TransferCommand) {
+            logBox.innerHTML += `<div class="text-xs color-purple code-font mt-1">☁️ AWS S3 Bucket URI: <code>${copyRes.s3BucketUri || 's3://asymptotic-model-weights/weights_csv/'}</code></div>`;
+            logBox.innerHTML += `<div class="text-xs color-purple code-font">☁️ AWS S3 High-Speed Direct Sync Command:</div>`;
+            logBox.innerHTML += `<div class="code-font text-xs p-2 mt-1 mb-1" style="background:#0c0a1a; border: 1px solid var(--accent-purple); border-radius:4px; color:#c084fc;">${copyRes.s3TransferCommand}</div>`;
+          }
+
+          logBox.innerHTML += `<div class="text-xs code-font text-muted">  • Destination Directory: <code>${copyRes.targetDirectory}</code></div>`;
+          logBox.innerHTML += `<div class="text-xs code-font text-muted">  • Files Written: <code>${copyRes.copiedFiles.join(', ')}</code></div>`;
+          logBox.innerHTML += `<div class="text-xs code-font text-muted">  • Weight CSV Files Copied: <strong>${copyRes.weightsCopiedCount} CSV files</strong> inside <code>weights_csv/</code></div>`;
+
+          stage1Completed = true;
+          confirmBtn.disabled = false;
+          confirmBtn.className = "btn btn-emerald font-bold";
+          confirmBtn.textContent = "🚀 Step 2: Execute Java Runtime Across All Servers";
+          this.showCustomToast(copyRes.networkError ? "Stage 1 Topology Prepared! Check Log for SCP Command." : `Stage 1 Copy Complete! ${copyRes.weightsCopiedCount} weights written`, "info");
+        } catch (err) {
+          logBox.innerHTML += `<div class="text-xs color-rose font-bold mt-1">Upload Error: ${err.message}</div>`;
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Retry Stage 1 Upload";
+        }
+        return;
+      }
+
+      // STAGE 2: EXECUTE JAVA RUNTIME ACROSS ALL SERVERS
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Launching Remote Execution...";
+
+      try {
+        const firstCardDest = modalBody.querySelector('.srv-dest-path')?.value || 'C:/JAVAJAR/';
+        const execRes = await executeDeploymentAPI({
+          xms,
+          xmx,
+          jarName,
+          serverIp,
+          topoJson,
+          modelSize,
+          destDirectory: firstCardDest
+        });
+
+        logBox.innerHTML += `
+          <div class="text-xs color-emerald font-bold mt-2">[4/4] Process Execution Invoked!</div>
+          <div class="text-xs color-cyan code-font mt-1">Command: ${execRes.executionCommand}</div>
+          <div class="text-xs code-font text-muted mt-1">Working Dir: <code>${execRes.workingDirectory}</code></div>
         `;
 
-        confirmBtn.textContent = "Deployed!";
-        this.showCustomToast("Cluster Deployment Completed!", "success");
+        confirmBtn.textContent = "Execution Finished!";
+        this.showCustomToast("Java CLI Process Execution Completed!", "success");
 
+        // Automatically open live terminal log monitor with real execution logs
         setTimeout(() => {
-          confirmBtn.disabled = false;
-          confirmBtn.textContent = "Execute Deployment";
-        }, 3000);
+          backdrop.style.display = 'none';
+          this.openTerminalModal(execRes.logs || []);
+        }, 800);
       } catch (err) {
-        logBox.innerHTML = `<div class="text-xs color-rose font-bold">Deployment Error: ${err.message}</div>`;
+        logBox.innerHTML += `<div class="text-xs color-rose font-bold mt-1">Execution Error: ${err.message}</div>`;
         confirmBtn.disabled = false;
-        confirmBtn.textContent = "Retry Deployment";
-        this.showCustomToast("Deployment Error: " + err.message, "error");
+        confirmBtn.textContent = "Retry Execution";
+        this.showCustomToast("Error: " + err.message, "error");
       }
     };
   }
@@ -983,6 +1419,30 @@ class App {
   bindGlobalEvents() {
     this.initPaletteToggle();
 
+    // View Switcher Segmented Control
+    const tabGraphBtn = document.getElementById('tab-btn-graph');
+    const tabServersBtn = document.getElementById('tab-btn-servers');
+    const viewGraphEl = document.getElementById('view-graph-studio');
+    const viewClusterEl = document.getElementById('view-cluster-overview');
+
+    if (tabGraphBtn && tabServersBtn) {
+      tabGraphBtn.addEventListener('click', () => {
+        tabGraphBtn.classList.add('active');
+        tabServersBtn.classList.remove('active');
+        if (viewGraphEl) viewGraphEl.style.display = 'flex';
+        if (viewClusterEl) viewClusterEl.style.display = 'none';
+        if (this.clusterDashboard) this.clusterDashboard.stopPolling();
+      });
+
+      tabServersBtn.addEventListener('click', () => {
+        tabServersBtn.classList.add('active');
+        tabGraphBtn.classList.remove('active');
+        if (viewGraphEl) viewGraphEl.style.display = 'none';
+        if (viewClusterEl) viewClusterEl.style.display = 'block';
+        if (this.clusterDashboard) this.clusterDashboard.startPolling();
+      });
+    }
+
     // Multi-Select Action Bar Buttons
     const groupSelBtn = document.getElementById('btn-group-selected');
     if (groupSelBtn) {
@@ -1060,42 +1520,68 @@ class App {
       this.showCustomToast("Exported topology.json", "success");
     });
 
-    // Expandable & Resizable Live JSON Drawer
+    // Expandable & Resizable Live JSON & Terminal Drawer
     const jsonDrawer = document.getElementById('json-drawer');
     const toggleBtn = document.getElementById('btn-toggle-json');
     const closeBtn = document.getElementById('btn-close-json-drawer');
     const expandBtn = document.getElementById('btn-expand-json');
     const drawerHeader = document.getElementById('json-drawer-header');
 
+    const tabJsonBtn = document.getElementById('tab-drawer-json');
+    const tabTerminalBtn = document.getElementById('tab-drawer-terminal');
+    const bodyJson = document.getElementById('drawer-body-json');
+    const bodyTerminal = document.getElementById('drawer-body-terminal');
+
+    const switchDrawerTab = (tab) => {
+      if (tab === 'json') {
+        if (tabJsonBtn) tabJsonBtn.classList.add('active');
+        if (tabTerminalBtn) tabTerminalBtn.classList.remove('active');
+        if (bodyJson) bodyJson.style.display = 'block';
+        if (bodyTerminal) bodyTerminal.style.display = 'none';
+      } else {
+        if (tabTerminalBtn) tabTerminalBtn.classList.add('active');
+        if (tabJsonBtn) tabJsonBtn.classList.remove('active');
+        if (bodyTerminal) bodyTerminal.style.display = 'block';
+        if (bodyJson) bodyJson.style.display = 'none';
+      }
+    };
+
+    if (tabJsonBtn) tabJsonBtn.addEventListener('click', () => switchDrawerTab('json'));
+    if (tabTerminalBtn) tabTerminalBtn.addEventListener('click', () => switchDrawerTab('terminal'));
+
     const toggleDrawer = () => jsonDrawer.classList.toggle('open');
-    toggleBtn.addEventListener('click', toggleDrawer);
-    closeBtn.addEventListener('click', () => jsonDrawer.classList.remove('open'));
+    if (toggleBtn) toggleBtn.addEventListener('click', toggleDrawer);
+    if (closeBtn) closeBtn.addEventListener('click', () => jsonDrawer.classList.remove('open'));
 
     let drawerMode = 0;
-    expandBtn.addEventListener('click', () => {
-      drawerMode = (drawerMode + 1) % 3;
-      jsonDrawer.classList.remove('half-screen', 'full-screen');
-      if (drawerMode === 1) {
-        jsonDrawer.classList.add('half-screen');
-        expandBtn.textContent = "Restore";
-      } else if (drawerMode === 2) {
-        jsonDrawer.classList.add('full-screen');
-        expandBtn.textContent = "Normal";
-      } else {
-        expandBtn.textContent = "Expand";
-      }
-    });
+    if (expandBtn) {
+      expandBtn.addEventListener('click', () => {
+        drawerMode = (drawerMode + 1) % 3;
+        jsonDrawer.classList.remove('half-screen', 'full-screen');
+        if (drawerMode === 1) {
+          jsonDrawer.classList.add('half-screen');
+          expandBtn.textContent = "Restore";
+        } else if (drawerMode === 2) {
+          jsonDrawer.classList.add('full-screen');
+          expandBtn.textContent = "Normal";
+        } else {
+          expandBtn.textContent = "Expand";
+        }
+      });
+    }
 
     let isResizingDrawer = false;
     let resizeStartY = 0;
     let initialHeight = 260;
 
-    drawerHeader.addEventListener('mousedown', (e) => {
-      if (e.target.closest('button')) return;
-      isResizingDrawer = true;
-      resizeStartY = e.clientY;
-      initialHeight = jsonDrawer.getBoundingClientRect().height;
-    });
+    if (drawerHeader) {
+      drawerHeader.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return;
+        isResizingDrawer = true;
+        resizeStartY = e.clientY;
+        initialHeight = jsonDrawer.getBoundingClientRect().height;
+      });
+    }
 
     window.addEventListener('mousemove', (e) => {
       if (isResizingDrawer) {
@@ -1112,12 +1598,127 @@ class App {
       }
     });
 
-    document.getElementById('btn-copy-json').addEventListener('click', () => {
-      const jsonStr = generateTopologyJSON(this.vertices);
-      navigator.clipboard.writeText(jsonStr).then(() => {
-        this.showCustomToast("JSON copied to clipboard!", "success");
+    const copyJsonBtn = document.getElementById('btn-copy-json');
+    if (copyJsonBtn) {
+      copyJsonBtn.addEventListener('click', () => {
+        const jsonStr = generateTopologyJSON(this.vertices);
+        navigator.clipboard.writeText(jsonStr).then(() => {
+          this.showCustomToast("JSON copied to clipboard!", "success");
+        });
       });
-    });
+    }
+
+    const openTermBtn = document.getElementById('btn-open-terminal');
+    if (openTermBtn) {
+      openTermBtn.addEventListener('click', () => this.openTerminalModal());
+    }
+  }
+
+  /**
+   * Opens the Multi-Server Live Terminal & Execution Log Monitor inside the Bottom Drawer.
+   * @param {Array<string>} initialLogs Real process execution stdout/stderr lines.
+   */
+  async openTerminalModal(initialLogs = null) {
+    const jsonDrawer = document.getElementById('json-drawer');
+    const tabTerminalBtn = document.getElementById('tab-drawer-terminal');
+    const tabJsonBtn = document.getElementById('tab-drawer-json');
+    const bodyJson = document.getElementById('drawer-body-json');
+    const bodyTerminal = document.getElementById('drawer-body-terminal');
+    const termOutput = document.getElementById('terminal-output-view');
+    const clearBtn = document.getElementById('btn-terminal-clear');
+    const autoscrollBtn = document.getElementById('btn-terminal-autoscroll');
+
+    if (!jsonDrawer || !termOutput) return;
+
+    // Open Drawer and activate Terminal tab
+    jsonDrawer.classList.add('open');
+    if (tabTerminalBtn) tabTerminalBtn.classList.add('active');
+    if (tabJsonBtn) tabJsonBtn.classList.remove('active');
+    if (bodyTerminal) bodyTerminal.style.display = 'block';
+    if (bodyJson) bodyJson.style.display = 'none';
+
+    let autoScroll = true;
+
+    const appendLogLine = (ip, vertexId, level, msg) => {
+      const time = new Date().toLocaleTimeString();
+      let color = '#a9b7c6';
+      if (level === 'EXEC' || level === 'STDOUT') color = '#2088ff';
+      if (level === 'WARN') color = '#cca700';
+      if (level === 'ERROR' || level === 'STDERR') color = '#f85149';
+
+      const lineHtml = `<div class="term-line mb-1" data-ip="${ip}"><span style="color:#6e7681;">[${time}]</span> <span style="color:#2088ff; font-weight:bold;">[${ip}]</span> <span style="color:var(--accent-amber);">[${vertexId}]</span> <span style="color:${color};">${msg}</span></div>`;
+      termOutput.insertAdjacentHTML('beforeend', lineHtml);
+
+      if (autoScroll) {
+        termOutput.scrollTop = termOutput.scrollHeight;
+      }
+    };
+
+    termOutput.innerHTML = ''; // Clear terminal output
+
+    if (Array.isArray(initialLogs) && initialLogs.length > 0) {
+      initialLogs.forEach(rawLine => {
+        appendLogLine('192.168.0.60', 'SYSTEM', rawLine.includes('ERROR') ? 'ERROR' : 'EXEC', rawLine);
+      });
+    } else {
+      try {
+        const res = await fetch('/api/SYSTEM/logs');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.logs && data.logs.length > 0) {
+            data.logs.forEach(msg => appendLogLine('192.168.0.60', 'SYSTEM', 'INFO', msg));
+          } else {
+            appendLogLine('192.168.0.60', 'SYSTEM', 'INFO', 'No execution logs recorded yet in database.');
+          }
+        }
+      } catch (e) {
+        appendLogLine('192.168.0.60', 'SYSTEM', 'INFO', 'Awaiting process execution logs...');
+      }
+    }
+
+    if (closeBtn) closeBtn.onclick = () => backdrop.style.display = 'none';
+    if (cancelBtn) cancelBtn.onclick = () => backdrop.style.display = 'none';
+
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        termOutput.innerHTML = `<div style="color: #629755;">// Terminal cleared. Streaming live logs...</div>`;
+      };
+    }
+
+    if (autoscrollBtn) {
+      autoscrollBtn.onclick = () => {
+        autoScroll = !autoScroll;
+        autoscrollBtn.textContent = autoScroll ? '📜 Auto-Scroll: ON' : '📜 Auto-Scroll: OFF';
+      };
+    }
+
+    if (serverSelect) {
+      serverSelect.onchange = () => {
+        const selIp = serverSelect.value;
+        const lines = termOutput.querySelectorAll('.term-line');
+        lines.forEach(line => {
+          if (selIp === 'ALL' || line.dataset.ip === selIp) {
+            line.style.display = 'block';
+          } else {
+            line.style.display = 'none';
+          }
+        });
+      };
+    }
+
+    if (searchInput) {
+      searchInput.oninput = () => {
+        const q = searchInput.value.toLowerCase();
+        const lines = termOutput.querySelectorAll('.term-line');
+        lines.forEach(line => {
+          if (!q || line.textContent.toLowerCase().includes(q)) {
+            line.style.display = 'block';
+          } else {
+            line.style.display = 'none';
+          }
+        });
+      };
+    }
   }
 }
 

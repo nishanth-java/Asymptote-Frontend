@@ -1,0 +1,42 @@
+{
+  "vertices": [
+    {
+      "id": "EMBEDDING0",
+      "type": "EMBEDDING",
+      "host": "192.168.0.126",
+      "port": 9000,
+      "internalPort": 10000,
+      "params": {
+        "dim": 896,
+        "vocabSize": 151936
+      },
+      "edges": [
+        "RMS0"
+      ]
+    },
+    {
+      "id": "RMS0",
+      "type": "RMS",
+      "host": "192.168.0.126",
+      "port": 9001,
+      "internalPort": 10001,
+      "params": {
+        "eps": 0.000001,
+        "dim": 896,
+        "noOfLayers": 24
+      },
+      "edges": []
+    }
+  ],
+  "groups": [],
+  "positions": {
+    "EMBEDDING0": {
+      "x": 229,
+      "y": 230
+    },
+    "RMS0": {
+      "x": 463,
+      "y": 226
+    }
+  }
+}

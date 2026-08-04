@@ -1,80 +1,130 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Topology Studio - Visual Vertex & Graph Editor</title>
+  <title>Asymptotic Studio — Visual Compute Engine</title>
   <meta name="description" content="Visual Vertex and Network Graph Architecture Studio for LLM Topologies">
   
   <!-- Inter & JetBrains Mono Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <div id="app-root">
-    <!-- Clean Top Header Bar -->
+    <!-- Top Header Bar — IDE-style with 3-zone layout -->
     <header class="top-header">
-      <div class="header-actions-left">
-        <button class="btn btn-secondary btn-sm" id="btn-new-topo" title="Start empty canvas graph">New Graph</button>
-        <label class="btn btn-secondary btn-sm file-input-label" title="Import Topology JSON">
-          Import JSON
-          <input type="file" id="file-import-input" accept=".json" style="display:none;">
-        </label>
-        <button class="btn btn-secondary btn-sm" id="btn-export-json">Export JSON</button>
-        <div class="header-divider"></div>
-        <button class="btn btn-primary btn-sm" id="btn-deploy-cluster" title="Deploy JAR binaries & topology JSON to assigned server IPs">Deploy Cluster</button>
+      <!-- Zone 1: Brand -->
+      <div class="header-brand">
+        <div class="brand-logo-mark">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </div>
+        <div class="brand-text-group">
+          <span class="brand-name">Asymptotic Studio</span>
+          <span class="brand-sub">Visual Compute Engine</span>
+        </div>
+        <div class="brand-version-pill">v1.0</div>
       </div>
 
+      <!-- Zone 2: Center Actions / Topology Name -->
+      <div class="header-center">
+
+        <!-- Primary Action Buttons -->
+        <button class="btn-header-action btn-run" id="btn-deploy-cluster" title="Deploy JAR binaries & topology JSON to assigned server IPs (Ctrl+D)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run Graph
+        </button>
+        <button class="btn-header-action btn-valid" id="btn-auto-layout" title="Auto Arrange topology (Ctrl+L)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Auto Arrange
+        </button>
+      </div>
+
+      <!-- Zone 3: Right Utilities -->
       <div class="header-actions-right">
-        <button class="btn btn-secondary btn-sm" id="btn-batch-modal" title="Batch generate slices (Q_0..Q_13)">Batch Slices</button>
-        <button class="btn btn-secondary btn-sm" id="btn-auto-layout" title="Tidy up layout dynamically">Auto Layout</button>
-        <button class="btn btn-outline btn-sm" id="btn-toggle-json">Live JSON</button>
-        <div class="header-divider"></div>
-        
+        <button class="btn-header-ghost" id="btn-batch-modal" title="Batch generate slices (Q_0..Q_13)">Batch Slices</button>
+        <button class="btn-header-ghost" id="btn-export-json" title="Export topology JSON">Export JSON</button>
+        <button class="btn-header-ghost btn-header-danger" id="btn-new-topo" title="Start empty canvas graph">Clear Graph</button>
+
+        <label class="btn-header-ghost file-input-label" title="Import Topology JSON">
+          Import
+          <input type="file" id="file-import-input" accept=".json" style="display:none;">
+        </label>
+
+        <button class="btn-header-ghost" id="btn-toggle-json" title="Toggle Live JSON drawer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+        </button>
+
+        <button class="btn-header-ghost" id="btn-open-terminal" title="Multi-Server Live Terminal & Execution Log Monitor" style="color: var(--accent-emerald); border-color: rgba(46, 160, 67, 0.4);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Terminal Logs
+        </button>
+
         <!-- Theme Toggle -->
-        <button class="theme-toggle-btn" id="btn-theme-toggle" title="Toggle Light / Dark Mode">
+        <button class="btn-header-ghost btn-theme-compact" id="btn-theme-toggle" title="Toggle Light / Dark Mode">
           <span id="theme-toggle-icon">☀️</span>
-          <span id="theme-toggle-text">Light Mode</span>
+          <span id="theme-toggle-text">Dark</span>
         </button>
       </div>
     </header>
 
-    <!-- Main Workspace Area -->
-    <div class="main-workspace">
-      <!-- Left Sidebar: Integrated Brand Logo & Searchable Components -->
+    <!-- =============================== GRAPH STUDIO VIEW =============================== -->
+    <div class="main-workspace" id="view-graph-studio">
+
+      <!-- Left Sidebar: Node Palette with category tabs -->
       <aside class="palette-sidebar" id="palette-sidebar">
+
+        <!-- Sidebar Header -->
         <div class="sidebar-header">
-          <div class="brand-container">
-            <div class="brand-logo" id="sidebar-logo-click" title="Click to toggle sidebar">
-              <span class="logo-icon">🪐</span>
-              <div class="brand-title">
-                <h1>Topology Studio</h1>
-                <span class="version-tag">v1.0</span>
-              </div>
+          <div class="sidebar-header-row">
+            <span class="sidebar-section-title" id="sidebar-logo-click" title="Click to collapse sidebar">ASYMPTOTIC NODES</span>
+            <div class="sidebar-header-actions">
+              <span class="sidebar-jar-badge">JAR</span>
+              <button class="sidebar-header-btn" id="btn-toggle-sidebar" title="Collapse Sidebar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
             </div>
-            <button class="sidebar-toggle-btn" id="btn-toggle-sidebar" title="Toggle Sidebar (Collapse / Expand)">
-              <span id="sidebar-toggle-icon">«</span>
-            </button>
           </div>
 
+          <!-- Search -->
           <div class="search-input-container">
-            <span class="search-input-icon">🔍</span>
-            <input type="text" id="palette-search-input" class="form-control code-font" placeholder="Search vertices..." autocomplete="off">
+            <svg class="search-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="palette-search-input" class="search-input-field" placeholder="Search nodes (e.g., Q0, RMS, Gate...)" autocomplete="off">
+          </div>
+
+          <!-- Category Filter Tabs -->
+          <div class="sidebar-cat-tabs" id="sidebar-cat-tabs">
+            <button class="cat-tab active" data-cat="all">All</button>
+            <button class="cat-tab" data-cat="Transformer Core">Transformer Core</button>
+            <button class="cat-tab" data-cat="Attention">Attention</button>
+            <button class="cat-tab" data-cat="MLP">MLP &amp; FeedForward</button>
           </div>
         </div>
 
         <!-- Collapsed 56px Column Icon Rail -->
         <div class="collapsed-icon-rail">
-          <button class="icon-rail-btn" id="rail-btn-expand" title="Expand Sidebar (Click to open)">▶</button>
-          <button class="icon-rail-btn" id="rail-btn-search" title="Search Components">🔍</button>
-          <!-- <button class="icon-rail-btn" id="rail-btn-add" title="Create Custom Vertex">➕</button> -->
+          <button class="icon-rail-btn" id="rail-btn-expand" title="Expand Sidebar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="icon-rail-btn" id="rail-btn-search" title="Search Components">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
         </div>
 
+        <!-- Node List -->
         <div class="preset-list" id="preset-palette">
-          <!-- Populated dynamically via backend API search in app.js -->
+          <!-- Populated dynamically via backend API in app.js -->
+        </div>
+
+        <!-- Sidebar Footer -->
+        <div class="sidebar-footer">
+          <span class="sidebar-footer-hint">Click node to add to canvas</span>
+          <span class="sidebar-footer-brand">asymptotic v1.0</span>
         </div>
       </aside>
 
@@ -88,12 +138,16 @@
           <button class="btn btn-xs btn-secondary" id="btn-clear-select">Clear</button>
         </div>
 
-        <!-- Floating Top-Right Corner Inspector Toggle & Hint -->
-        <div class="canvas-inspector-toggle-container">
-          <span class="hint-pill" id="inspector-hint-pill">Shift+Drag to box-select • Del to delete • Esc to deselect • Ctrl+F search</span>
-          <button class="btn-inspector-toggle" id="btn-toggle-inspector" title="Toggle Inspector Sidebar">
-            Inspector <span id="inspector-badge" class="badge badge-blue">Off</span>
-          </button>
+        <!-- Canvas Top-Right Corner Controls -->
+        <div class="canvas-controls-overlay">
+          <div class="canvas-controls-left">
+            <span class="hint-pill" id="inspector-hint-pill">Shift+Drag to box-select · Del to delete · Esc to deselect · Ctrl+F search</span>
+          </div>
+          <div class="canvas-controls-right">
+            <button class="btn-inspector-toggle" id="btn-toggle-inspector" title="Toggle Inspector Sidebar">
+              Inspector <span id="inspector-badge" class="badge badge-gray">Off</span>
+            </button>
+          </div>
         </div>
       </main>
 
@@ -102,12 +156,13 @@
         <!-- Managed by inspector.js -->
       </aside>
 
-      <!-- Bottom Drawer: Live JSON Viewer -->
+      <!-- Bottom Drawer: Live JSON & Execution Terminal Logs -->
       <div class="json-drawer" id="json-drawer">
         <div class="json-drawer-header" id="json-drawer-header" title="Drag to resize height">
-          <div class="flex-row gap-2">
-            <span class="text-sm font-semibold">Live Topology JSON (<code>vertices</code>)</span>
-            <span class="text-xs text-muted">(Drag header to resize)</span>
+          <div class="flex-row gap-1">
+            <button class="drawer-tab-btn active" id="tab-drawer-json">📄 Live Topology JSON</button>
+            <button class="drawer-tab-btn" id="tab-drawer-terminal">🖥️ Execution Terminal Logs</button>
+            <span class="text-xs text-muted" style="margin-left: 6px;">(Drag header to resize)</span>
           </div>
           <div class="flex-row gap-2">
             <button class="btn btn-xs btn-outline" id="btn-expand-json" title="Expand / Maximize drawer">Expand</button>
@@ -115,54 +170,39 @@
             <button class="btn-close" id="btn-close-json-drawer">&times;</button>
           </div>
         </div>
-        <div class="json-drawer-body">
+        
+        <!-- Drawer Body Tab 1: Live Topology JSON -->
+        <div class="json-drawer-body" id="drawer-body-json" style="display: block;">
           <pre class="json-code-view" id="json-code-output"></pre>
         </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Cluster Deployment Modal -->
-  <div class="modal-backdrop" id="deploy-modal-backdrop" style="display: none;">
-    <div class="modal-dialog modal-lg">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <h3>Deploy Topology to Assigned Server IPs</h3>
-          <span class="text-xs text-muted">JAR Transfers & Intertwined Topology Global Broadcast</span>
+        <!-- Drawer Body Tab 2: Remote Execution Terminal Logs -->
+        <div class="json-drawer-body p-2" id="drawer-body-terminal" style="display: none; background: #070a10; height: calc(100% - 38px);">
+          <div class="flex-between mb-2">
+            <div class="flex-row gap-2">
+              <span class="badge badge-emerald">● LIVE STREAM</span>
+              <label class="text-xs text-muted font-semibold">Server IP:</label>
+              <select id="terminal-server-select" class="form-control text-xs code-font" style="width: 220px; height: 26px; padding: 2px 8px;">
+                <option value="ALL">🌐 All Servers (Global Stream)</option>
+                <option value="192.168.0.60">💻 Target Linux (192.168.0.60)</option>
+                <option value="192.168.0.126">💻 Remote Server (192.168.0.126)</option>
+                <option value="192.168.0.196">💻 GPU Server Node 1 (192.168.0.196)</option>
+              </select>
+            </div>
+
+            <div class="flex-row gap-2">
+              <input type="text" id="terminal-search-input" class="form-control text-xs code-font" placeholder="Filter logs..." style="width: 160px; height: 26px;">
+              <button class="btn btn-xs btn-outline" id="btn-terminal-clear">🧹 Clear</button>
+              <button class="btn btn-xs btn-outline" id="btn-terminal-autoscroll">📜 Auto-Scroll: ON</button>
+            </div>
+          </div>
+
+          <!-- Terminal Output Viewer -->
+          <div id="terminal-output-view" class="code-font text-xs" style="height: calc(100% - 36px); overflow-y: auto; background: #05080e; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 12px; line-height: 1.6; color: #a9b7c6;">
+            <div style="color: #629755;">// Visual Compute Engine — Remote Execution Terminal Console</div>
+            <div style="color: #629755;">// Connected to MongoDB DB continuous log collection 'vertex_logs'...</div>
+          </div>
         </div>
-        <button class="btn-close" id="btn-close-deploy-modal">&times;</button>
-      </div>
-
-      <div class="modal-body" id="deploy-modal-body">
-        <!-- Filled dynamically by app.js -->
-      </div>
-
-      <div class="modal-footer flex-between">
-        <span class="text-xs text-muted" id="deploy-status-note">Ensure server IPs are reachable on network</span>
-        <div class="flex-row gap-2">
-          <button class="btn btn-secondary" id="btn-cancel-deploy">Close</button>
-          <button class="btn btn-primary" id="btn-confirm-deploy">Execute Deployment</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- In-App Custom UI Prompt / Confirm Dialog Backdrop -->
-  <div class="modal-backdrop" id="ui-modal-backdrop" style="display: none; z-index: 300;">
-    <div class="modal-dialog modal-sm" style="width: 440px;">
-      <div class="modal-header">
-        <h3 id="ui-modal-title">Confirmation</h3>
-        <button class="btn-close" id="ui-modal-close-btn">&times;</button>
-      </div>
-      <div class="modal-body" id="ui-modal-body">
-        <p id="ui-modal-message" class="text-sm text-muted">Are you sure?</p>
-        <div id="ui-modal-input-container" class="form-group mt-2" style="display: none;">
-          <input type="text" id="ui-modal-input" class="form-control code-font" autocomplete="off">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" id="ui-modal-cancel-btn">Cancel</button>
-        <button class="btn btn-primary" id="ui-modal-confirm-btn">Confirm</button>
       </div>
     </div>
   </div>

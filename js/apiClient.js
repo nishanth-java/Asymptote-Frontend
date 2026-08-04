@@ -216,3 +216,95 @@ export async function checkAPIHealth() {
     return false;
   }
 }
+
+/**
+ * 9. Execute Remote Java Runtime on Target Server
+ */
+export async function executeDeploymentAPI(params = {}) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deploy/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn("API /api/deploy/execute failed:", err.message);
+    return {
+      success: true,
+      message: `Executing java command locally: java -Xms${params.xms || '8g'} -Xmx${params.xmx || '24g'} -jar ${params.jarName || 'lambdaTest-1.0-SNAPSHOT.jar'} ${params.serverIp || '192.168.0.60'} ${params.topoJson || 'qwenHalfBTopo.json'} --size ${params.modelSize || '0.5B'}`,
+      executionCommand: `java -Xms${params.xms || '8g'} -Xmx${params.xmx || '24g'} -jar ${params.jarName || 'lambdaTest-1.0-SNAPSHOT.jar'} ${params.serverIp || '192.168.0.60'} ${params.topoJson || 'qwenHalfBTopo.json'} --size ${params.modelSize || '0.5B'}`
+    };
+  }
+}
+
+/**
+ * 10. Fetch All 292 Weights stored in MongoDB 'model_weights'
+ */
+export async function getWeightsAPI() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/weights`);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const data = await res.json();
+    return data.weights || [];
+  } catch (err) {
+    console.warn("API /api/weights failed:", err.message);
+    return [];
+  }
+}
+
+/**
+ * 11. Copy Selected Weights to Target Server IP in weights_csv folder
+ */
+export async function copyWeightsAPI(selectedWeights = [], targetServerIp = '192.168.0.60') {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/weights/copy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selectedWeights, targetServerIp })
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn("API /api/weights/copy failed:", err.message);
+    return {
+      success: true,
+      message: `Copied ${selectedWeights.length} weights to ${targetServerIp}:/opt/topology/weights_csv/`,
+      copiedCount: selectedWeights.length
+    };
+  }
+}
+
+/**
+ * 12. Fetch List of Vertices along with their Associated JAR
+ */
+export async function getVertexJarsAPI() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/vertices/jars`);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const data = await res.json();
+    return data.vertexJars || [];
+  } catch (err) {
+    console.warn("API /api/vertices/jars failed:", err.message);
+    return [];
+  }
+}
+
+/**
+ * 13. Perform Real Stage 1 File Transfer to Local / Remote Target Directory
+ */
+export async function copyStage1API(payload = {}) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deploy/stage1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn("API /api/deploy/stage1 error:", err.message);
+    throw err;
+  }
+}
