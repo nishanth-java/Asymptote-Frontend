@@ -1,10 +1,12 @@
 // JSON Import/Export & Live Preview Manager
 
 export function generateTopologyJSON(vertices) {
-  // Clean up vertices for export
+  // Clean up vertices for export to match Spring Boot VertexInstanceDto
   const cleanVertices = vertices.map(v => {
+    const vidVal = v.vid || (v.type ? v.type.toLowerCase() + '_v1' : 'vertex_v1');
     const obj = {
       id: v.id,
+      vid: vidVal,
       type: v.type
     };
 
@@ -12,13 +14,8 @@ export function generateTopologyJSON(vertices) {
     if (v.port !== undefined && v.port !== null) obj.port = Number(v.port);
     if (v.internalPort !== undefined && v.internalPort !== null) obj.internalPort = Number(v.internalPort);
     
-    if (v.params && Object.keys(v.params).length > 0) {
-      obj.params = { ...v.params };
-    }
-
-    if (v.edges && v.edges.length > 0) {
-      obj.edges = [...v.edges];
-    }
+    obj.params = (v.params && typeof v.params === 'object') ? { ...v.params } : {};
+    obj.edges = (v.edges && Array.isArray(v.edges)) ? [...v.edges] : [];
 
     return obj;
   });

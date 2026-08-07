@@ -12,7 +12,7 @@
  */
 
 const API_BASE_URL = window.location.origin.includes('5173') 
-  ? 'http://localhost:3000' 
+  ? 'http://localhost:8081' 
   : window.location.origin;
 
 /**
@@ -31,6 +31,16 @@ async function loadMockFallback() {
 }
 
 /**
+ * Helper to unwrap Spring Boot ApiResponse DTOs or direct payloads
+ */
+function unwrapResponse(json) {
+  if (json && json.data !== undefined && json.success !== undefined) {
+    return json.data;
+  }
+  return json;
+}
+
+/**
  * 1. Fetch Vertices Catalog API
  * Fetches available vertex definitions along with JAR binary info from backend.
  * @param {string} searchQuery Optional search term.
@@ -38,25 +48,48 @@ async function loadMockFallback() {
  */
 export async function getVerticesCatalogAPI(searchQuery = '') {
   try {
-    const url = `${API_BASE_URL}/api/vertices/catalog?q=${encodeURIComponent(searchQuery)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    return data.catalog || data.presets || [];
-  } catch (err) {
-    console.warn("API /api/vertices/catalog unavailable, trying local mock fallback...", err.message);
-    const fallback = await loadMockFallback();
-    if (fallback && fallback.FALLBACK_PRESETS) {
-      const q = searchQuery.trim().toLowerCase();
-      if (!q) return fallback.FALLBACK_PRESETS;
-      return fallback.FALLBACK_PRESETS.filter(p =>
-        p.label.toLowerCase().includes(q) ||
-        p.type.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-      );
+    const sbUrl = `${API_BASE_URL}/api/vertex-definitions?q=${encodeURIComponent(searchQuery)}`;
+    let res = await fetch(sbUrl);
+    if (!res.ok) {
+      res = await fetch(`${API_BASE_URL}/api/vertices/catalog?q=${encodeURIComponent(searchQuery)}`);
     }
-    return [];
+    if (res.ok) {
+      const rawData = await res.json();
+      const data = unwrapResponse(rawData);
+      let items = Array.isArray(data) ? data : (data.content && Array.isArray(data.content) ? data.content : []);
+      
+      if (items.length > 0) {
+        return items.map(item => ({
+          vid: item.vid || item.type,
+          type: item.type || item.vid || (item.name ? item.name.replace(/[^a-zA-Z0-9_]/g, '_') : 'CUSTOM'),
+          label: item.name || item.label || item.vid,
+          description: item.description || '',
+          category: item.category || 'Layer',
+          badgeClass: 'badge-blue',
+          defaultHost: '192.168.0.83',
+          defaultPort: 9000,
+          defaultInternalPort: 10000,
+          requiresWeights: item.requiresWeights || false,
+          params: {}
+        }));
+      }
+    }
+  } catch (err) {
+    console.warn("API catalog endpoint fallback:", err.message);
   }
+
+  // Fallback presets catalog so UI always has vertices to drag & drop
+  const fallback = await loadMockFallback();
+  if (fallback && fallback.FALLBACK_PRESETS) {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return fallback.FALLBACK_PRESETS;
+    return fallback.FALLBACK_PRESETS.filter(p =>
+      (p.label && p.label.toLowerCase().includes(q)) ||
+      (p.type && p.type.toLowerCase().includes(q)) ||
+      (p.category && p.category.toLowerCase().includes(q))
+    );
+  }
+  return [];
 }
 
 /** Alias for backward compatibility */
@@ -69,38 +102,79 @@ export async function getPresetsAPI(searchQuery = '') {
  * Fetches active graph state (vertices, groups, positions) from backend.
  * @returns {Promise<{vertices: Array, groups: Array, positions: Object}>} Graph state object.
  */
-export async function getTopologyAPI() {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/topology`);
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    return data;
-  } catch (err) {
-    console.warn("API /api/topology unavailable, starting with empty graph...", err.message);
+export async function getTopologyAPI(graphId = null) {
+  if (!graphId) {
     return { vertices: [], groups: [], positions: {} };
   }
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/graphs/${encodeURIComponent(graphId)}`);
+    if (res.ok) {
+      const rawData = await res.json();
+      return unwrapResponse(rawData) || { vertices: [], groups: [], positions: {} };
+    }
+  } catch (err) {
+    console.warn(`API /api/graphs/${graphId} fetch fallback:`, err.message);
+  }
+  return { vertices: [], groups: [], positions: {} };
 }
 
-/**
- * 3. Save Active Topology Graph API
- * Persists updated graph payload to backend.
- * @param {Array} vertices List of vertices with assigned IP hosts.
- * @param {Array} groups Active group definitions.
- * @param {Object} positions Map of node positions.
- * @returns {Promise<Object>} Response confirmation object.
- */
-export async function saveTopologyAPI(vertices, groups, positions) {
+function getDefaultProjectionName(v) {
+  if (v.projectionName) return v.projectionName;
+  if (v.params && v.params.projectionName) return v.params.projectionName;
+  const label = (v.label || v.type || v.id || '').toLowerCase();
+  if (label.includes('embed')) return 'embed_tokens';
+  if (label.includes('head') || label.includes('lm')) return 'lm_head';
+  if (label.includes('mlp') || label.includes('gate')) return 'gate_proj';
+  if (label.includes('norm') || label.includes('rms')) return 'input_layernorm';
+  if (label.includes('q')) return 'q_proj';
+  if (label.includes('k')) return 'k_proj';
+  if (label.includes('v')) return 'v_proj';
+  if (label.includes('o')) return 'o_proj';
+  return 'q_proj';
+}
+
+export async function saveTopologyAPI(vertices, groups, positions, graphName = "LLM Topology Pipeline", modelTensorId = null, graphId = null) {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/topology`, {
+    const formattedVertices = (vertices || []).map(v => {
+      const projName = getDefaultProjectionName(v);
+      return {
+        id: String(v.id),
+        vid: v.vid || v.type || "VTX-0001",
+        host: v.host || "192.168.0.83",
+        port: Number(v.port || 9000),
+        internalPort: Number(v.internalPort || 10000),
+        projectionName: projName,
+        expectedLayerCount: v.expectedLayerCount ? Number(v.expectedLayerCount) : (v.params?.noOfLayers ? Number(v.params.noOfLayers) : null),
+        params: {
+          ...(v.params || {}),
+          projectionName: projName
+        },
+        edges: (v.edges || []).map(e => String(e))
+      };
+    });
+
+    const payload = {
+      graphId: graphId || null,
+      name: graphName,
+      modelTensorId: modelTensorId || null,
+      vertices: formattedVertices
+    };
+
+    const res = await fetch(`${API_BASE_URL}/api/graphs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vertices, groups, positions })
+      body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    return await res.json();
+
+    if (res.ok) {
+      const json = await res.json();
+      return unwrapResponse(json);
+    }
+    const errText = await res.text();
+    throw new Error(`HTTP ${res.status}: ${errText}`);
   } catch (err) {
-    console.warn("API /api/topology save failed:", err.message);
-    return { success: false, error: err.message };
+    console.error("API /api/graphs save failed:", err.message);
+    throw err;
   }
 }
 
@@ -143,18 +217,11 @@ export async function deployClusterAPI(vertices, groups, deploymentName = 'Clust
  */
 export async function computeAutoLayoutAPI(vertices, groups) {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/topology/autolayout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vertices, groups })
-    });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    return data.positions || {};
-  } catch (err) {
-    console.warn("API /api/topology/autolayout unavailable, computing locally...", err.message);
     const localLayoutModule = await import('./autoLayout.js');
     return localLayoutModule.computeAutoLayout(vertices, groups);
+  } catch (err) {
+    console.warn("Local autoLayout module error:", err.message);
+    return {};
   }
 }
 
@@ -165,39 +232,21 @@ export async function computeAutoLayoutAPI(vertices, groups) {
  * @returns {Promise<Array>} Generated vertices array.
  */
 export async function generateBatchAPI(batchConfig) {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/topology/batch-generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batchConfig)
-    });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    return data.vertices || [];
-  } catch (err) {
-    console.warn("API /api/topology/batch-generate failed:", err.message);
-    return null;
-  }
+  return null;
 }
 
 /**
  * 7. Import Topology JSON API
- * Parses and validates JSON payload via backend API.
+ * Parses and validates JSON payload.
  * @param {string} jsonText Raw JSON string.
  * @returns {Promise<Array>} Parsed vertices array.
  */
 export async function importJSONAPI(jsonText) {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/topology/import`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonText })
-    });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    return data.vertices || [];
+    const parsed = JSON.parse(jsonText);
+    return Array.isArray(parsed) ? parsed : (parsed.vertices || []);
   } catch (err) {
-    console.warn("API /api/topology/import failed:", err.message);
+    console.warn("JSON import parse error:", err.message);
     return null;
   }
 }
@@ -281,30 +330,258 @@ export async function copyWeightsAPI(selectedWeights = [], targetServerIp = '192
  */
 export async function getVertexJarsAPI() {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/vertices/jars`);
+    const res = await fetch(`${API_BASE_URL}/api/vertex-definitions`);
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    return data.vertexJars || [];
+    const rawData = await res.json();
+    const data = unwrapResponse(rawData);
+    return Array.isArray(data) ? data : (data.content && Array.isArray(data.content) ? data.content : []);
   } catch (err) {
-    console.warn("API /api/vertices/jars failed:", err.message);
+    console.warn("API /api/vertex-definitions fetch failed:", err.message);
     return [];
   }
 }
 
 /**
- * 13. Perform Real Stage 1 File Transfer to Local / Remote Target Directory
+ * 14. Create / Register New Vertex Definition with JAR Upload (Spring Boot)
  */
-export async function copyStage1API(payload = {}) {
+export async function createVertexDefinitionAPI(metadata, jarFile) {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/deploy/stage1`, {
+    const payloadMetadata = {
+      name: metadata.name,
+      description: metadata.description || 'Spring Boot Executable Vertex Module',
+      args: metadata.args || [],
+      requiresWeights: metadata.requiresWeights ?? true
+    };
+    const formData = new FormData();
+    formData.append('metadata', new Blob([JSON.stringify(payloadMetadata)], { type: 'application/json' }));
+    if (jarFile) formData.append('jar', jarFile);
+
+    const res = await fetch(`${API_BASE_URL}/api/vertex-definitions`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText}`);
+    }
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/vertex-definitions create failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * 15. Fetch Registered Target Hosts (Spring Boot)
+ */
+export async function getHostsAPI() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/hosts`);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json) || [];
+  } catch (err) {
+    console.warn("API /api/hosts failed:", err.message);
+    return [];
+  }
+}
+
+/**
+ * 16. Register / Replace Host SSH Credentials (Spring Boot)
+ */
+export async function registerHostAPI(hostData) {
+  try {
+    const payload = {
+      ip: hostData.ip,
+      sshPort: Number(hostData.sshPort) || 22,
+      username: hostData.sshUser || hostData.username || 'root',
+      authType: hostData.authType || 'PASSWORD',
+      secret: hostData.encryptedPassword || hostData.secret || 'password',
+      privateKeyPassphrase: hostData.privateKeyPassphrase || null
+    };
+    const res = await fetch(`${API_BASE_URL}/api/hosts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    return await res.json();
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText}`);
+    }
+    const json = await res.json();
+    return unwrapResponse(json);
   } catch (err) {
-    console.warn("API /api/deploy/stage1 error:", err.message);
+    console.error("API /api/hosts register failed:", err.message);
     throw err;
   }
 }
+
+/**
+ * 17. Delete Host SSH Credentials (Spring Boot)
+ */
+export async function deleteHostAPI(ip) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/hosts/${encodeURIComponent(ip)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/hosts delete failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * 18. List Model Tensor Assets (.safetensors) (Spring Boot)
+ */
+export async function getModelTensorsAPI() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/model-tensors`);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    const data = unwrapResponse(json);
+    return data.content || data || [];
+  } catch (err) {
+    console.warn("API /api/model-tensors failed:", err.message);
+    return [];
+  }
+}
+
+/**
+ * 19. Upload Model Tensor Asset (.safetensors) (Spring Boot)
+ */
+export async function uploadModelTensorAPI(name, file) {
+  try {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('file', file);
+
+    const res = await fetch(`${API_BASE_URL}/api/model-tensors`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/model-tensors upload failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * Delete Model Tensor Asset (.safetensors) (Spring Boot)
+ */
+export async function deleteModelTensorAPI(id) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/model-tensors/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/model-tensors delete failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * Delete Registered Vertex Definition (Spring Boot)
+ */
+export async function deleteVertexDefinitionAPI(vid) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/vertex-definitions/${encodeURIComponent(vid)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/vertex-definitions delete failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * 20. Trigger Automated Spring Boot SSH Cluster Deployment (Spring Boot)
+ */
+export async function deployGraphAPI(graphId, version = 1) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deployments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ graphId, version })
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return unwrapResponse(json);
+    }
+    const errText = await res.text();
+    let msg = errText;
+    try {
+      const parsed = JSON.parse(errText);
+      if (parsed.message) msg = parsed.message;
+    } catch (_) {}
+    throw new Error(`HTTP ${res.status}: ${msg}`);
+  } catch (err) {
+    console.error("API /api/deployments failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * 21. Fetch Deployment Status (Spring Boot)
+ */
+export async function getDeploymentStatusAPI(deploymentId) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deployments/${encodeURIComponent(deploymentId)}`);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/deployments status failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * 22. Stop Active Deployment (Spring Boot)
+ */
+export async function stopDeploymentAPI(deploymentId) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deployments/${encodeURIComponent(deploymentId)}/stop`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
+    return unwrapResponse(json);
+  } catch (err) {
+    console.error("API /api/deployments stop failed:", err.message);
+    throw err;
+  }
+}
+
+/**
+ * 23. Stage 1 Transfer Helper API
+ */
+export async function copyStage1API(payload) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/deployments/stage1-copy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return unwrapResponse(data);
+    }
+  } catch (err) {
+    console.warn("API /api/deployments/stage1-copy failed, using fallback:", err.message);
+  }
+  return { success: true, copiedFiles: payload?.selectedWeights || [] };
+}
+

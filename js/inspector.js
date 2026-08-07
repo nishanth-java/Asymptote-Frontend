@@ -30,17 +30,17 @@ export function renderInspector(
       <div class="inspector-card">
         <div class="inspector-header">
           <div>
-            <span class="badge badge-amber">📦 Collapsed Group</span>
+            <span class="badge badge-amber">Group</span>
             <h3 class="inspector-title">${selectedGroup.label}</h3>
           </div>
           <div class="flex-row gap-2">
-            <button class="btn btn-danger-icon" id="insp-ungroup-this-btn" title="Ungroup Group">🔓 Ungroup</button>
+            <button class="btn btn-danger-icon" id="insp-ungroup-this-btn" title="Ungroup Group">Ungroup</button>
             <button class="btn-close" id="insp-close-panel-btn" title="Collapse Inspector">&times;</button>
           </div>
         </div>
 
         <div class="inspector-section">
-          <h4 class="section-title">🏷️ Group Identity</h4>
+          <h4 class="section-title">Group Identity</h4>
           
           <div class="form-group">
             <label>Group Label Name</label>
@@ -54,7 +54,7 @@ export function renderInspector(
         </div>
 
         <div class="inspector-section mt-3">
-          <h4 class="section-title">🧩 Group Member Vertices (${selectedGroup.memberIds.length})</h4>
+          <h4 class="section-title">Group Member Vertices (${selectedGroup.memberIds.length})</h4>
           <div class="edges-tag-container">
             ${selectedGroup.memberIds.map(mId => `
               <span class="edge-tag badge-cyan">
@@ -66,7 +66,7 @@ export function renderInspector(
 
         <div class="inspector-section mt-4">
           <button class="btn btn-primary style-w-full" id="insp-ungroup-this-btn-bottom" style="width: 100%; justify-content: center; padding: 10px;">
-            🔓 Dissolve Group & Unpack Vertices
+            Dissolve Group &amp; Unpack Vertices
           </button>
         </div>
       </div>
@@ -116,7 +116,6 @@ export function renderInspector(
         </div>
 
         <div class="info-callout">
-          <div class="info-callout-icon">📦</div>
           <div class="text-sm">
             <strong>Group Operations</strong><br>
             Combine multiple vertices into a single collapsed unit or dissolve existing groups.
@@ -125,24 +124,24 @@ export function renderInspector(
 
         <div class="form-group mt-3">
           <button class="btn btn-primary style-w-full" id="insp-group-btn" style="width: 100%; justify-content: center; padding: 12px; font-size: 0.95rem;">
-            📦 Group ${selectedIds.length} Vertices into 1 Unit
+            Group ${selectedIds.length} Vertices into 1 Unit
           </button>
         </div>
 
         ${groupItems.length > 0 ? `
           <div class="form-group mt-2">
             <button class="btn btn-outline style-w-full" id="insp-ungroup-btn" style="width: 100%; justify-content: center; padding: 10px; color: var(--accent-rose); border-color: var(--accent-rose);">
-              🔓 Ungroup Selected Groups (${groupItems.length})
+              Ungroup Selected Groups (${groupItems.length})
             </button>
           </div>
         ` : ''}
 
         <div class="inspector-section mt-4">
-          <h4 class="section-title">📋 Selected Items List</h4>
+          <h4 class="section-title">Selected Items List</h4>
           <div class="edges-tag-container">
             ${selectedIds.map(id => `
               <span class="edge-tag ${id.startsWith('group-') ? 'badge-amber' : ''}">
-                ${id.startsWith('group-') ? '📦 ' + id : id}
+                ${id}
               </span>
             `).join('')}
           </div>
@@ -174,7 +173,6 @@ export function renderInspector(
           <button class="btn-close" id="insp-close-panel-btn" title="Collapse Inspector">&times;</button>
         </div>
         <div class="empty-inspector">
-          <div class="empty-icon">🪐</div>
           <h4>No Vertex Selected</h4>
           <p class="text-sm text-muted">Click any vertex or grouped unit on the canvas to inspect its parameters, or Shift+Drag to box-select multiple vertices for grouping.</p>
         </div>
@@ -201,23 +199,22 @@ export function renderInspector(
           <h3 class="inspector-title">${selectedVertex.id}</h3>
         </div>
         <div class="flex-row gap-2">
-          <button class="btn btn-danger-icon" id="insp-delete-btn" title="Delete Vertex">💥 Delete</button>
+          <button class="btn btn-danger-icon" id="insp-delete-btn" title="Delete Vertex">Delete</button>
           <button class="btn-close" id="insp-close-panel-btn" title="Collapse Inspector">&times;</button>
         </div>
       </div>
 
       ${parentGroup ? `
         <div class="info-callout" style="border-color: var(--accent-amber); background: rgba(245, 158, 11, 0.08);">
-          <div class="info-callout-icon">📦</div>
           <div class="text-sm">
             Part of <strong>${parentGroup.label}</strong> group.
-            <button class="btn btn-xs btn-outline mt-1" id="insp-ungroup-single-btn">🔓 Ungroup ${parentGroup.label}</button>
+            <button class="btn btn-xs btn-outline mt-1" id="insp-ungroup-single-btn">Ungroup ${parentGroup.label}</button>
           </div>
         </div>
       ` : ''}
 
       <div class="inspector-section">
-        <h4 class="section-title">🏷️ Identity & Network</h4>
+        <h4 class="section-title">Identity &amp; Network</h4>
         
         <div class="form-group">
           <label>Vertex ID (Unique Name)</label>
@@ -227,8 +224,8 @@ export function renderInspector(
         <div class="form-group">
           <label>Vertex Type</label>
           <select id="insp-type-preset" class="form-control">
-            <option value="__NEW_TYPE__">➕ + Add New Type...</option>
-            ${isCustomType ? `<option value="${selectedVertex.type}" selected>⭐ ${selectedVertex.type} (Custom)</option>` : ''}
+            <option value="__NEW_TYPE__">+ Add New Type...</option>
+            ${isCustomType ? `<option value="${selectedVertex.type}" selected>${selectedVertex.type} (Custom)</option>` : ''}
             ${VERTEX_PRESETS.map(p => `
               <option value="${p.type}" ${!isCustomType && p.type === selectedVertex.type ? 'selected' : ''}>${p.type} (${p.category})</option>
             `).join('')}
@@ -241,31 +238,43 @@ export function renderInspector(
         </div>
 
         <div class="form-group">
-          <label>🌐 Host IP Address</label>
+          <label>Host IP Address</label>
           <input type="text" id="insp-host" class="form-control code-font" value="${selectedVertex.host || ''}">
         </div>
 
         <div class="form-grid-2">
           <div class="form-group">
-            <label>🔌 External Port</label>
+            <label>External Port</label>
             <input type="number" id="insp-port" class="form-control code-font" value="${selectedVertex.port || ''}">
           </div>
 
           <div class="form-group">
-            <label>⚡ Internal Port</label>
+            <label>Internal Port</label>
             <input type="number" id="insp-internal-port" class="form-control code-font" value="${selectedVertex.internalPort || ''}">
+          </div>
+        </div>
+
+        <div class="form-grid-2 mt-2">
+          <div class="form-group">
+            <label>Projection Name</label>
+            <input type="text" id="insp-projection-name" class="form-control code-font" value="${selectedVertex.projectionName || ''}" placeholder="e.g. k_proj, lm_head">
+          </div>
+
+          <div class="form-group">
+            <label>Expected Layer Count</label>
+            <input type="number" id="insp-expected-layers" class="form-control code-font" value="${selectedVertex.expectedLayerCount || ''}" placeholder="e.g. 24">
           </div>
         </div>
       </div>
 
       <div class="inspector-section mt-3">
         <div class="flex-between">
-          <h4 class="section-title">🧪 Parameters (<code>params</code>)</h4>
+          <h4 class="section-title">Parameters (<code>params</code>)</h4>
         </div>
 
         <div class="flex-row gap-2 mt-1">
           <input type="text" id="insp-kv-input" class="form-control flex-1 code-font" placeholder="key::value (e.g. noOfLayers::24)">
-          <button class="btn btn-xs btn-outline" id="insp-add-param-btn">➕ Add</button>
+          <button class="btn btn-xs btn-outline" id="insp-add-param-btn">Add</button>
         </div>
 
         <div id="insp-params-list" class="params-table mt-2">
@@ -274,7 +283,7 @@ export function renderInspector(
       </div>
 
       <div class="inspector-section mt-3">
-        <h4 class="section-title">🎯 Outgoing Target Edges (<code>edges</code>)</h4>
+        <h4 class="section-title">Outgoing Target Edges (<code>edges</code>)</h4>
         <div class="edges-tag-container" id="insp-edges-list">
           ${(selectedVertex.edges || []).map(targetId => `
             <span class="edge-tag">
@@ -291,7 +300,7 @@ export function renderInspector(
               .filter(v => v.id !== selectedVertex.id && !(selectedVertex.edges || []).includes(v.id))
               .map(v => `<option value="${v.id}">${v.id}</option>`).join('')}
           </select>
-          <button class="btn btn-sm btn-primary" id="insp-add-edge-btn">🔌 Connect</button>
+          <button class="btn btn-sm btn-primary" id="insp-add-edge-btn">Connect</button>
         </div>
       </div>
     </div>
@@ -370,6 +379,19 @@ export function renderInspector(
   // Internal Port Change
   container.querySelector('#insp-internal-port').addEventListener('change', (e) => {
     selectedVertex.internalPort = parseInt(e.target.value, 10) || 0;
+    onUpdateVertex(selectedVertex);
+  });
+
+  // Projection Name Change
+  container.querySelector('#insp-projection-name').addEventListener('change', (e) => {
+    selectedVertex.projectionName = e.target.value.trim() || null;
+    onUpdateVertex(selectedVertex);
+  });
+
+  // Expected Layer Count Change
+  container.querySelector('#insp-expected-layers').addEventListener('change', (e) => {
+    const val = parseInt(e.target.value, 10);
+    selectedVertex.expectedLayerCount = !isNaN(val) ? val : null;
     onUpdateVertex(selectedVertex);
   });
 

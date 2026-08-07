@@ -33,11 +33,18 @@
 
       <!-- Zone 2: Center Actions / Topology Name -->
       <div class="header-center">
-
         <!-- Primary Action Buttons -->
+        <button class="btn-header-action btn-save" id="btn-save-graph" title="Save graph topology to MongoDB (Ctrl+S)" style="background: var(--accent-blue); color: #fff; margin-right: 4px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save Graph
+        </button>
         <button class="btn-header-action btn-run" id="btn-deploy-cluster" title="Deploy JAR binaries & topology JSON to assigned server IPs (Ctrl+D)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Run Graph
+        </button>
+        <button class="btn-header-action btn-stop" id="btn-terminate-cluster" title="Terminate running processes on remote cluster" style="display: none; background: rgba(244,63,94,0.15); border: 1px solid var(--accent-rose); color: var(--accent-rose); margin-left: 4px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          Stop Cluster
         </button>
         <button class="btn-header-action btn-valid" id="btn-auto-layout" title="Auto Arrange topology (Ctrl+L)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -47,14 +54,10 @@
 
       <!-- Zone 3: Right Utilities -->
       <div class="header-actions-right">
-        <button class="btn-header-ghost" id="btn-batch-modal" title="Batch generate slices (Q_0..Q_13)">Batch Slices</button>
-        <button class="btn-header-ghost" id="btn-export-json" title="Export topology JSON">Export JSON</button>
-        <button class="btn-header-ghost btn-header-danger" id="btn-new-topo" title="Start empty canvas graph">Clear Graph</button>
-
-        <label class="btn-header-ghost file-input-label" title="Import Topology JSON">
-          Import
-          <input type="file" id="file-import-input" accept=".json" style="display:none;">
-        </label>
+        <button class="btn-header-ghost" id="btn-vertex-defs-modal" title="Manage & Register Vertex Definitions & JARs">Vertex Registry</button>
+        <button class="btn-header-ghost" id="btn-hosts-modal" title="Manage registered SSH Host credentials">SSH Hosts</button>
+        <button class="btn-header-ghost" id="btn-tensors-modal" title="Manage uploaded safetensors model weights">Model Tensors</button>
+        <button class="btn-header-ghost btn-header-danger" id="btn-new-topo" title="Start empty canvas graph">Clear Canvas</button>
 
         <button class="btn-header-ghost" id="btn-toggle-json" title="Toggle Live JSON drawer">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
@@ -67,8 +70,8 @@
 
         <!-- Theme Toggle -->
         <button class="btn-header-ghost btn-theme-compact" id="btn-theme-toggle" title="Toggle Light / Dark Mode">
-          <span id="theme-toggle-icon">☀️</span>
-          <span id="theme-toggle-text">Dark</span>
+          <span id="theme-toggle-icon"></span>
+          <span id="theme-toggle-text">Theme</span>
         </button>
       </div>
     </header>
@@ -203,6 +206,163 @@
             <div style="color: #629755;">// Connected to MongoDB DB continuous log collection 'vertex_logs'...</div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SSH Hosts Management Modal Backdrop -->
+  <div class="modal-backdrop" id="hosts-modal-backdrop" style="display: none; z-index: 310;">
+    <div class="modal-dialog modal-md" style="width: 600px;">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>Target Server SSH Hosts Registry</h3>
+          <span class="text-xs text-muted">Spring Boot SSH Credential Management (`/api/hosts`)</span>
+        </div>
+        <button class="btn-close" id="btn-close-hosts-modal">&times;</button>
+      </div>
+
+      <div class="modal-body p-3">
+        <form id="form-register-host" class="form-grid-2 mb-3">
+          <div class="form-group">
+            <label class="text-xs font-semibold">Host IP:</label>
+            <input type="text" id="host-ip-input" class="form-control text-xs code-font" placeholder="192.168.0.196" required>
+          </div>
+          <div class="form-group">
+            <label class="text-xs font-semibold">SSH Username:</label>
+            <input type="text" id="host-user-input" class="form-control text-xs code-font" placeholder="kai" required>
+          </div>
+          <div class="form-group">
+            <label class="text-xs font-semibold">SSH Port:</label>
+            <input type="number" id="host-port-input" class="form-control text-xs code-font" value="22" required>
+          </div>
+          <div class="form-group">
+            <label class="text-xs font-semibold">SSH Password / Private Key:</label>
+            <input type="password" id="host-pass-input" class="form-control text-xs code-font" placeholder="Password or Key" required>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <button type="submit" class="btn btn-sm btn-primary w-full">Save Host Credentials</button>
+          </div>
+        </form>
+
+        <h4 class="section-title">Registered Hosts</h4>
+        <div id="hosts-list-container" class="preview-box p-2 code-font text-xs" style="max-height: 200px; overflow-y: auto;">
+          <span class="text-muted text-xs">Loading registered hosts...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vertex Registry Management Modal Backdrop -->
+  <div class="modal-backdrop" id="vertex-defs-modal-backdrop" style="display: none; z-index: 310;">
+    <div class="modal-dialog modal-md" style="width: 640px;">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>Vertex Registry &amp; JAR Upload</h3>
+          <span class="text-xs text-muted">Spring Boot Vertex Definition Manager (`/api/vertex-definitions`)</span>
+        </div>
+        <button class="btn-close" id="btn-close-vertex-defs-modal">&times;</button>
+      </div>
+
+      <div class="modal-body p-3">
+        <form id="form-create-vertex-def" class="flex-column gap-2 mb-3">
+          <div class="form-group">
+            <label class="text-xs font-semibold">Vertex Component Name:</label>
+            <input type="text" id="vdef-name-input" class="form-control text-xs code-font" placeholder="e.g. SwiGLU FeedForward MLP" required>
+          </div>
+          <div class="form-group">
+            <label class="text-xs font-semibold">Description:</label>
+            <input type="text" id="vdef-desc-input" class="form-control text-xs code-font" placeholder="Layer description..." required>
+          </div>
+          <div class="form-group">
+            <label class="text-xs font-semibold">Select Executable JAR File:</label>
+            <input type="file" id="vdef-jar-input" class="form-control text-xs code-font" accept=".jar" required>
+          </div>
+          <div class="flex-row gap-2 align-center mt-1">
+            <input type="checkbox" id="vdef-weights-input" checked>
+            <label for="vdef-weights-input" class="text-xs font-semibold">Requires Weight File (weights.csv)</label>
+          </div>
+          <button type="submit" class="btn btn-sm btn-primary font-bold mt-2">Register Vertex Definition to GridFS</button>
+        </form>
+
+        <h4 class="section-title">Registered Vertex Definitions</h4>
+        <div id="vertex-defs-list-container" class="preview-box p-2 code-font text-xs" style="max-height: 200px; overflow-y: auto;">
+          <span class="text-muted text-xs">Loading vertex definitions...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Tensors (.safetensors) Management Modal Backdrop -->
+  <div class="modal-backdrop" id="tensors-modal-backdrop" style="display: none; z-index: 310;">
+    <div class="modal-dialog modal-md" style="width: 600px;">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>Model Tensors Asset Manager</h3>
+          <span class="text-xs text-muted">Upload `.safetensors` files to GridFS (`/api/model-tensors`)</span>
+        </div>
+        <button class="btn-close" id="btn-close-tensors-modal">&times;</button>
+      </div>
+
+      <div class="modal-body p-3">
+        <form id="form-upload-tensor" class="flex-column gap-2 mb-3">
+          <div class="form-group">
+            <label class="text-xs font-semibold">Model Asset Name:</label>
+            <input type="text" id="tensor-name-input" class="form-control text-xs code-font" placeholder="Qwen2.5-0.5B-Instruct" required>
+          </div>
+          <div class="form-group">
+            <label class="text-xs font-semibold">Select .safetensors File:</label>
+            <input type="file" id="tensor-file-input" class="form-control text-xs code-font" accept=".safetensors,.bin" required>
+          </div>
+          <button type="submit" class="btn btn-sm btn-emerald font-bold">Upload to GridFS Storage</button>
+        </form>
+
+        <h4 class="section-title">Indexed Model Tensors</h4>
+        <div id="tensors-list-container" class="preview-box p-2 code-font text-xs" style="max-height: 200px; overflow-y: auto;">
+          <span class="text-muted text-xs">Loading model tensor assets...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy Modal Backdrop -->
+  <div class="modal-backdrop" id="deploy-modal-backdrop" style="display: none; z-index: 310;">
+    <div class="modal-dialog modal-lg" style="width: 720px; max-width: 90vw;">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>Deploy Topology to Target Cluster</h3>
+          <span class="text-xs text-muted">Spring Boot Deployment Service (`/api/deployments`)</span>
+        </div>
+        <button class="btn-close" id="btn-close-deploy-modal">&times;</button>
+      </div>
+      <div class="modal-body p-3" id="deploy-modal-body">
+        <!-- Dynamically populated by App.openDeployModal -->
+      </div>
+      <div class="modal-footer p-3 flex-between">
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-cancel-deploy">Cancel</button>
+        <div class="flex-center gap-2">
+          <button type="button" class="btn btn-sm btn-rose font-bold" id="btn-stop-deploy" style="display: none;">🛑 Terminate Cluster Processes</button>
+          <button type="button" class="btn btn-sm btn-emerald font-bold" id="btn-confirm-deploy">Start Deployment Execution</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom In-App Confirm / Prompt Dialog Backdrop -->
+  <div class="modal-backdrop" id="ui-modal-backdrop" style="display: none; z-index: 400;">
+    <div class="modal-dialog modal-sm" style="width: 420px;">
+      <div class="modal-header">
+        <h3 id="ui-modal-title">Confirm Action</h3>
+        <button class="btn-close" id="ui-modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body p-3">
+        <p class="text-sm" id="ui-modal-message">Are you sure?</p>
+        <div id="ui-modal-input-container" style="display: none;" class="mt-2">
+          <input type="text" id="ui-modal-input" class="form-control text-xs code-font">
+        </div>
+      </div>
+      <div class="modal-footer p-3 flex-end gap-2">
+        <button type="button" class="btn btn-sm btn-ghost" id="ui-modal-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="ui-modal-confirm-btn">Confirm</button>
       </div>
     </div>
   </div>

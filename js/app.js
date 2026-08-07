@@ -28,8 +28,15 @@ import {
   getWeightsAPI,
   copyWeightsAPI,
   getVertexJarsAPI,
+  createVertexDefinitionAPI,
   checkAPIHealth,
-  copyStage1API
+  copyStage1API,
+  getHostsAPI,
+  registerHostAPI,
+  deleteHostAPI,
+  getModelTensorsAPI,
+  uploadModelTensorAPI,
+  deployGraphAPI
 } from './apiClient.js';
 
 /** Exported Helper Wrappers for Custom In-App UI Modals & Toasts */
@@ -59,6 +66,7 @@ class App {
     this.selectedVertexId = null;
     this.selectedIds = [];
     this.isInspectorOpen = false;
+    this.currentGraphId = null;
 
     // Cluster Overview Dashboard Module
     const clusterViewEl = document.getElementById('view-cluster-overview');
@@ -176,11 +184,7 @@ class App {
     const toast = document.createElement('div');
     toast.className = `toast-item toast-${type}`;
     
-    let icon = 'ℹ️';
-    if (type === 'success') icon = '✅';
-    if (type === 'error') icon = '⚠️';
-
-    toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+    toast.innerHTML = `<span>${message}</span>`;
     container.appendChild(toast);
 
     setTimeout(() => {
@@ -305,6 +309,13 @@ class App {
         return;
       }
 
+      // Ctrl + S (Cmd + S): Save Graph Topology to MongoDB
+      if (isCmdOrCtrl && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        this.saveCurrentGraph();
+        return;
+      }
+
       // 3. Ctrl + A (Cmd + A): Select All Vertices
       if (isCmdOrCtrl && (e.key === 'a' || e.key === 'A') && !isInputActive) {
         e.preventDefault();
@@ -403,21 +414,25 @@ class App {
     localStorage.setItem('topology_theme', theme);
 
     const iconEl = document.getElementById('theme-toggle-icon');
+    if (iconEl) {
+      iconEl.textContent = '';
+    }
+
     const textEl = document.getElementById('theme-toggle-text');
-    if (iconEl && textEl) {
-      if (theme === 'light') {
-        iconEl.textContent = '☀️';
-        textEl.textContent = 'Light';
-      } else {
-        iconEl.textContent = '🌙';
-        textEl.textContent = 'Dark';
-      }
+    if (textEl) {
+      textEl.textContent = theme === 'light' ? 'Dark' : 'Light';
+    }
+
+    const themeBtn = document.getElementById('btn-theme-toggle');
+    if (themeBtn) {
+      themeBtn.title = theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode';
     }
   }
 
   toggleTheme() {
     const nextTheme = this.currentTheme === 'light' ? 'dark' : 'light';
     this.setTheme(nextTheme);
+    this.showCustomToast(`Theme switched to ${nextTheme.toUpperCase()} mode`, "info");
   }
 
   initGraphEngine() {
@@ -450,7 +465,7 @@ class App {
   }
 
   async syncStateToAPI() {
-    await saveTopologyAPI(this.vertices, this.groups, this.positions);
+    this.updateLiveJSON();
   }
 
   updateMultiSelectBar() {
@@ -694,12 +709,24 @@ class App {
 
     /**
      * Fetches nodes from API and filters by active category & search query.
+     * Only displays vertices when searched or filtered.
      */
     const renderPalette = async (query = '') => {
       const q = query.trim();
-      // Only re-fetch if catalog is empty or new search
-      if (fullCatalog.length === 0 || q) {
-        fullCatalog = await getVerticesCatalogAPI(q);
+
+      if (!q && activeCat === 'all') {
+        paletteEl.innerHTML = `
+          <div class="sidebar-empty-state" style="padding: 28px 14px; text-align: center;">
+            <div class="text-xs text-muted" style="line-height: 1.6;">
+              Type in the search box above to search vertex components (e.g. <code>Embedding</code>, <code>RMS</code>, <code>Q</code>, <code>K</code>, <code>V</code>).
+            </div>
+          </div>`;
+        return;
+      }
+
+      // Only re-fetch if catalog is empty
+      if (fullCatalog.length === 0) {
+        fullCatalog = await getVerticesCatalogAPI('');
       }
 
       let filtered = fullCatalog;
@@ -711,7 +738,7 @@ class App {
         );
       }
 
-      // Apply search filter locally too
+      // Apply search filter locally
       if (q) {
         filtered = filtered.filter(item =>
           item.label.toLowerCase().includes(q.toLowerCase()) ||
@@ -743,7 +770,7 @@ class App {
       });
     }
 
-    // Initial render with all nodes
+    // Initial render: show empty prompt until user searches
     renderPalette('');
   }
 
@@ -863,9 +890,43 @@ class App {
     this.engine.setGraphData(this.vertices, this.positions, this.groups);
     this.engine.fitView();
     await this.syncStateToAPI();
-    this.showCustomToast("Layout tidied up", "info");
   }
 
+  async resolveModelTensorId() {
+    if (this.selectedModelTensorId) return this.selectedModelTensorId;
+    try {
+      const tensors = await getModelTensorsAPI();
+      if (tensors && tensors.length > 0) {
+        this.selectedModelTensorId = tensors[0].id;
+        return tensors[0].id;
+      }
+    } catch (e) {
+      console.warn("Failed to auto-resolve model tensor ID:", e.message);
+    }
+    return null;
+  }
+
+  async saveCurrentGraph() {
+    if (!this.vertices || this.vertices.length === 0) {
+      this.showCustomToast("Cannot save empty graph. Add vertices first.", "error");
+      return;
+    }
+    try {
+      this.showCustomToast("Saving graph & extracting weights... This may take 30–90s for large models.", "info");
+      const modelTensorId = await this.resolveModelTensorId();
+      const res = await saveTopologyAPI(this.vertices, this.groups, this.positions, "LLM Cluster Topology", modelTensorId, this.currentGraphId);
+      if (res && res.graphId) this.currentGraphId = res.graphId;
+      const graphId = res.graphId || "GRP-SAVED";
+      const version = res.version || 1;
+      this.showCustomToast(`Graph saved! ID: ${graphId} (v${version})`, "success");
+    } catch (err) {
+      this.showCustomToast("Save graph failed: " + err.message, "error");
+    }
+  }
+
+  /**
+   * Opens the Cluster Deployment Modal (`/api/deployments`)
+   */
   async openDeployModal() {
     this.vertices = this.engine.vertices && this.engine.vertices.length > 0 
       ? this.engine.vertices 
@@ -888,55 +949,18 @@ class App {
     const backdrop = document.getElementById('deploy-modal-backdrop');
     const modalBody = document.getElementById('deploy-modal-body');
     const confirmBtn = document.getElementById('btn-confirm-deploy');
+    if (!backdrop || !modalBody || !confirmBtn) return;
 
-    const serverMap = new Map();
-    this.vertices.forEach(v => {
-      const ip = (v.host || '192.168.0.60').trim();
-      if (!serverMap.has(ip)) serverMap.set(ip, []);
-      serverMap.get(ip).push(v);
-    });
-
-    const uniqueIps = Array.from(serverMap.keys());
-    const primaryIp = uniqueIps[0] || '192.168.0.60';
-
-    let serverListHtml = uniqueIps.map((ip, idx) => {
-      const nodes = serverMap.get(ip);
-      const types = Array.from(new Set(nodes.map(n => n.type))).join(', ');
-      const defaultUser = idx === 0 ? 'kai' : 'ubuntu';
-      const defaultPath = idx === 0 ? '/home/kai/qwenf5/' : '/opt/topology/';
-      return `
-        <div class="deploy-server-card mb-2" data-ip="${ip}">
-          <div class="flex-between mb-1">
-            <span class="font-bold text-sm">Linux Target Server IP: <code>${ip}</code></span>
-            <span class="badge badge-blue">${nodes.length} Vertices Assigned (${nodes.map(n => n.id).join(', ')})</span>
-          </div>
-          
-          <div class="form-grid-2 gap-2 mt-2">
-            <div>
-              <label class="text-xs text-muted font-semibold">SSH Remote Username:</label>
-              <input type="text" class="form-control code-font text-xs srv-ssh-user" value="${defaultUser}" placeholder="e.g. kai, ubuntu, root">
-            </div>
-            <div>
-              <label class="text-xs text-muted font-semibold">Destination Directory Path on Linux Server:</label>
-              <input type="text" class="form-control code-font text-xs srv-dest-path" value="${defaultPath}" placeholder="e.g. /home/kai/qwenf5/ or /opt/topology/">
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    const uniqueIps = Array.from(new Set(this.vertices.map(v => v.host || '192.168.0.83')));
 
     modalBody.innerHTML = `
       <div class="deploy-summary-box mb-3">
         <div class="flex-between">
-          <span class="text-sm font-semibold">Linux SSH/SCP Deployment &amp; Manual Package Pipeline:</span>
-          <div class="flex-row gap-2">
-            <button type="button" class="btn btn-xs btn-outline" id="btn-download-deploy-pkg">📦 Download Topology &amp; Files (Windows Manual Setup)</button>
-            <span class="badge badge-emerald">${this.vertices.length} Vertices • ${uniqueIps.length} Linux Target Servers</span>
-          </div>
+          <span class="text-sm font-semibold">Spring Boot Cluster Deployment Pipeline:</span>
+          <span class="badge badge-emerald">${this.vertices.length} Vertices • ${uniqueIps.length} Target Servers</span>
         </div>
         <p class="text-xs text-muted mt-1">
-          Uploads <code>lambdaTest-1.0-SNAPSHOT.jar</code>, <code>qwenHalfBTopo.json</code>, and selected weight CSV files from MongoDB to Linux target servers over SSH/SCP.
-          Click <strong>Download Topology &amp; Files</strong> if setting up manually on Windows!
+          Saves the graph topology to MongoDB (<code>graphs</code> collection) and triggers SSH staging + remote execution across all target nodes.
         </p>
       </div>
 
@@ -951,115 +975,57 @@ class App {
         </div>
       </div>
 
-      <!-- Target Server Credentials & Destination Settings -->
+      <!-- Target Servers Overview -->
       <div class="preview-box mb-3">
         <div class="preview-box-header color-accent flex-between">
-          <span>Target Servers, Credentials &amp; Remote Destinations</span>
-          <span class="badge badge-purple">Multi-Platform Linux &amp; Windows</span>
+          <span>Target Cluster Server Nodes</span>
+          <span class="badge badge-purple">SSH / SFTP Remote Staging</span>
         </div>
-        <div class="deploy-servers-container">
-          ${serverListHtml}
+        <div class="deploy-servers-container p-2">
+          ${uniqueIps.map(ip => {
+            const nodes = this.vertices.filter(v => (v.host || '192.168.0.83') === ip);
+            return `
+              <div class="deploy-server-card mb-2" data-ip="${ip}">
+                <div class="flex-between mb-1">
+                  <span class="font-bold text-sm">Linux Host IP: <code>${ip}</code></span>
+                  <span class="badge badge-blue">${nodes.length} Vertices Assigned (${nodes.map(n => n.id).join(', ')})</span>
+                </div>
+                <div class="text-xs text-muted">Destination Path: <code>/opt/vertices/{vertexId}/</code></div>
+              </div>
+            `;
+          }).join('')}
         </div>
       </div>
 
-      <!-- Vertex Node & Associated JAR Registry -->
+      <!-- Vertex Node & Execution JAR Registry -->
       <div class="preview-box mb-3">
         <div class="preview-box-header color-accent flex-between">
-          <span>Vertex Node &amp; Execution JAR Association Registry</span>
+          <span>Vertex Node &amp; GridFS Execution JAR Association</span>
           <span class="badge badge-cyan">lambdaTest-1.0-SNAPSHOT.jar</span>
         </div>
-        <div style="max-height: 140px; overflow-y: auto; background: #0b0f17; border-radius: 6px; padding: 8px;">
+        <div style="max-height: 160px; overflow-y: auto; background: #0b0f17; border-radius: 6px; padding: 8px;">
           <table class="table-compact text-xs code-font" style="width:100%;">
             <thead>
               <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary);">
                 <th style="text-align:left; padding:4px;">Vertex ID</th>
+                <th style="text-align:left; padding:4px;">VID</th>
                 <th style="text-align:left; padding:4px;">Type</th>
-                <th style="text-align:left; padding:4px;">Associated Execution JAR</th>
-                <th style="text-align:left; padding:4px;">Target Server IP</th>
+                <th style="text-align:left; padding:4px;">Target Server Host</th>
+                <th style="text-align:left; padding:4px;">Port</th>
               </tr>
             </thead>
             <tbody>
               ${this.vertices.map(v => `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                   <td style="padding:4px; font-weight:bold; color:var(--accent-amber);">${v.id}</td>
+                  <td style="padding:4px; color:var(--accent-purple);">${v.vid || 'VTX-DEF'}</td>
                   <td style="padding:4px; color:var(--text-secondary);">${v.type}</td>
-                  <td style="padding:4px; color:var(--accent-cyan);">lambdaTest-1.0-SNAPSHOT.jar (18.5 MB)</td>
-                  <td style="padding:4px; color:var(--accent-blue);">${v.host || '192.168.0.60'}</td>
+                  <td style="padding:4px; color:var(--accent-blue);">${v.host || '192.168.0.83'}</td>
+                  <td style="padding:4px; color:var(--accent-cyan);">${v.port || 8090}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <!-- Interactive 292 Weights Checkbox Manager -->
-      <div class="preview-box mb-3">
-        <div class="preview-box-header color-accent flex-between">
-          <span>Model Weights Selector (stored in MongoDB 'model_weights' collection)</span>
-          <span id="weights-counter-badge" class="badge badge-purple">Loading weights...</span>
-        </div>
-
-        <div class="flex-between mb-2">
-          <div class="flex-row gap-2">
-            <button type="button" class="btn btn-xs btn-outline" id="btn-weights-select-all">☑️ Select All</button>
-            <button type="button" class="btn btn-xs btn-outline" id="btn-weights-clear-all">⬜ Clear All</button>
-          </div>
-          <input type="text" id="weights-filter-input" class="form-control text-xs code-font" placeholder="Search 292 CSV weights..." style="width: 220px;">
-        </div>
-
-        <div id="weights-checklist-container" style="max-height: 180px; overflow-y: auto; background: var(--bg-tertiary, #0d131f); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px;" class="form-grid-3">
-          <div class="text-xs text-muted">Scanning MongoDB model_weights collection...</div>
-        </div>
-        <div class="text-xs text-muted mt-1">
-          Selected weight CSV files will be transferred to target server folder: <code>weights_csv/</code>
-        </div>
-      </div>
-
-      <!-- Execution Parameters Form -->
-      <div class="preview-box mb-3">
-        <div class="preview-box-header color-accent flex-between">
-          <span>Java Execution Parameters &amp; Remote Run CLI</span>
-          <span class="badge badge-amber">Java 17+ Runtime</span>
-        </div>
-
-        <div class="form-grid-2 mb-2">
-          <div class="form-group mb-0">
-            <label class="text-xs">Min Memory (-Xms):</label>
-            <input type="text" id="exec-xms-input" class="form-control code-font text-xs" value="8g">
-          </div>
-          <div class="form-group mb-0">
-            <label class="text-xs">Max Memory (-Xmx):</label>
-            <input type="text" id="exec-xmx-input" class="form-control code-font text-xs" value="24g">
-          </div>
-        </div>
-
-        <div class="form-grid-2 mb-2">
-          <div class="form-group mb-0">
-            <label class="text-xs">Execution JAR Name:</label>
-            <input type="text" id="exec-jar-input" class="form-control code-font text-xs" value="lambdaTest-1.0-SNAPSHOT.jar">
-          </div>
-          <div class="form-group mb-0">
-            <label class="text-xs">Primary Server IP:</label>
-            <input type="text" id="exec-ip-input" class="form-control code-font text-xs" value="${primaryIp}">
-          </div>
-        </div>
-
-        <div class="form-grid-2 mb-2">
-          <div class="form-group mb-0">
-            <label class="text-xs">Topology File Name:</label>
-            <input type="text" id="exec-topo-input" class="form-control code-font text-xs" value="qwenHalfBTopo.json">
-          </div>
-          <div class="form-group mb-0">
-            <label class="text-xs">Model Size Parameter:</label>
-            <input type="text" id="exec-size-input" class="form-control code-font text-xs" value="0.5B">
-          </div>
-        </div>
-
-        <div class="form-group mb-0 mt-2">
-          <label class="text-xs font-semibold color-accent">Live Exec Command Preview:</label>
-          <div class="deploy-log-box mt-1 code-font text-xs color-cyan" id="exec-cmd-preview" style="background:#090d13; padding:8px; border-radius:6px;">
-            java -Xms8g -Xmx24g -jar lambdaTest-1.0-SNAPSHOT.jar ${primaryIp} qwenHalfBTopo.json 0.5B
-          </div>
         </div>
       </div>
 
@@ -1070,236 +1036,226 @@ class App {
 
     backdrop.style.display = 'flex';
 
-    // Download Deployment Package for Windows Manual Setup
-    const btnDownloadPkg = document.getElementById('btn-download-deploy-pkg');
-    if (btnDownloadPkg) {
-      btnDownloadPkg.addEventListener('click', () => {
-        const topoJsonStr = generateTopologyJSON(this.vertices);
-        downloadJSON(topoJsonStr, 'qwenHalfBTopo.json');
-        this.showCustomToast("Downloaded qwenHalfBTopo.json! Copy lambdaTest-1.0-SNAPSHOT.jar & weights_csv/ to target folder.", "success");
-      });
-    }
-
-    // Live update Exec Command Preview
-    const updateExecPreview = () => {
-      const jar = (document.getElementById('exec-jar-input')?.value || 'lambdaTest-1.0-SNAPSHOT.jar').trim();
-      const topo = (document.getElementById('exec-topo-input')?.value || 'qwenHalfBTopo.json').trim();
-      const xms = (document.getElementById('exec-xms-input')?.value || '8g').trim();
-      const xmx = (document.getElementById('exec-xmx-input')?.value || '24g').trim();
-      const size = (document.getElementById('exec-size-input')?.value || '0.5B').trim();
-      const primaryIp = (document.getElementById('exec-ip-input')?.value || uniqueIps[0] || '192.168.0.60').trim();
-
-      const execPreview = document.getElementById('exec-cmd-preview');
-      if (execPreview) {
-        execPreview.textContent = `java -Xms${xms} -Xmx${xmx} -jar ${jar} ${primaryIp} ${topo} ${size ? size : ''}`;
-      }
-    };
-
-    ['exec-xms-input', 'exec-xmx-input', 'exec-jar-input', 'exec-ip-input', 'exec-topo-input', 'exec-size-input'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('input', updateExecPreview);
-    });
-
-    // Populate & Bind 292 Weights Checklist from MongoDB
-    const loadWeightsChecklist = async () => {
-      const checklistContainer = document.getElementById('weights-checklist-container');
-      const badge = document.getElementById('weights-counter-badge');
-      const filterInput = document.getElementById('weights-filter-input');
-      const btnSelectAll = document.getElementById('btn-weights-select-all');
-      const btnClearAll = document.getElementById('btn-weights-clear-all');
-
-      try {
-        const weightsData = await getWeightsAPI();
-        const weightsList = Array.isArray(weightsData) ? weightsData : (weightsData.weights || []);
-
-        if (badge) badge.textContent = `${weightsList.length} Weights Selected`;
-
-        if (checklistContainer) {
-          checklistContainer.innerHTML = weightsList.map(w => `
-            <label class="weight-check-item text-xs flex-row gap-1" data-name="${w.weightName.toLowerCase()}" style="display:flex; align-items:center; color: #38bdf8;">
-              <input type="checkbox" class="weight-checkbox" value="${w.weightName}" checked style="accent-color: var(--accent-blue);">
-              <span class="code-font text-ellipsis font-semibold" style="color: #e2e8f0;" title="${w.s3Url || w.weightName}">${w.weightName}</span>
-              <a href="${w.s3Url || '#'}" target="_blank" class="text-xs" style="font-size:0.65rem; color:var(--accent-cyan); text-decoration:underline;" title="View AWS S3 Bucket URL">☁️ S3 Link</a>
-            </label>
-          `).join('');
-        }
-
-        // Live Weights Search Filter
-        if (filterInput && checklistContainer) {
-          filterInput.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase().trim();
-            const items = checklistContainer.querySelectorAll('.weight-check-item');
-            let visibleCount = 0;
-            items.forEach(item => {
-              const name = item.dataset.name || '';
-              if (!query || name.includes(query)) {
-                item.style.display = 'flex';
-                visibleCount++;
-              } else {
-                item.style.display = 'none';
-              }
-            });
-            if (badge) badge.textContent = `${visibleCount} / ${weightsList.length} Filtered`;
-          });
-        }
-
-        // Select All / Clear All
-        if (btnSelectAll && checklistContainer) {
-          btnSelectAll.addEventListener('click', () => {
-            const checkboxes = checklistContainer.querySelectorAll('.weight-checkbox');
-            checkboxes.forEach(cb => cb.checked = true);
-            if (badge) badge.textContent = `${checkboxes.length} Weights Selected`;
-          });
-        }
-        if (btnClearAll && checklistContainer) {
-          btnClearAll.addEventListener('click', () => {
-            const checkboxes = checklistContainer.querySelectorAll('.weight-checkbox');
-            checkboxes.forEach(cb => cb.checked = false);
-            if (badge) badge.textContent = `0 Weights Selected`;
-          });
-        }
-      } catch (err) {
-        if (checklistContainer) {
-          checklistContainer.innerHTML = `<div class="text-xs color-rose">Failed to load weights: ${err.message}</div>`;
-        }
-      }
-    };
-
-    loadWeightsChecklist();
-
-    // Reset button to Stage 1
     confirmBtn.disabled = false;
-    confirmBtn.className = "btn btn-primary";
-    confirmBtn.textContent = "📤 Step 1: Upload JARs & Topo to Servers";
-
-    let stage1Completed = false;
+    confirmBtn.className = "btn btn-sm btn-emerald font-bold";
+    confirmBtn.textContent = "Launch Cluster Deployment";
 
     confirmBtn.onclick = async () => {
-      const xms = (document.getElementById('exec-xms-input')?.value || '8g').trim();
-      const xmx = (document.getElementById('exec-xmx-input')?.value || '24g').trim();
-      const jarName = (document.getElementById('exec-jar-input')?.value || 'lambdaTest-1.0-SNAPSHOT.jar').trim();
-      const serverIp = (document.getElementById('exec-ip-input')?.value || primaryIp).trim();
-      const topoJson = (document.getElementById('exec-topo-input')?.value || 'qwenHalfBTopo.json').trim();
-      const modelSize = (document.getElementById('exec-size-input')?.value || '0.5B').trim();
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Deploying Cluster...";
 
       const progressLabel = document.getElementById('deploy-progress-label');
       const progressPct = document.getElementById('deploy-progress-pct');
       const progressFill = document.getElementById('deploy-progress-fill');
       const logBox = document.getElementById('deploy-live-log');
 
-      // STAGE 1: UPLOAD JARS, TOPO & WEIGHTS TO SERVERS
-      if (!stage1Completed) {
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = "Writing & Copying Files to Disk...";
-
+      if (logBox) {
         logBox.style.display = 'block';
-        logBox.innerHTML = `<div class="text-xs color-amber">[1/4] Preparing Disk Copy Pipeline Across Server Nodes...</div>`;
-        if (progressFill) progressFill.style.width = '25%';
-        if (progressPct) progressPct.textContent = '25%';
-
-        try {
-          // Collect checked weights
-          const checklistContainer = document.getElementById('weights-checklist-container');
-          const selectedWeights = [];
-          if (checklistContainer) {
-            checklistContainer.querySelectorAll('.weight-checkbox:checked').forEach(cb => {
-              selectedWeights.push(cb.value);
-            });
-          }
-
-          // Get target server IP, SSH user, and destination folder from first target server card
-          const firstCard = modalBody.querySelector('.deploy-server-card');
-          const targetServerIp = firstCard ? (firstCard.dataset.ip || serverIp) : serverIp;
-          const sshUser = firstCard ? (firstCard.querySelector('.srv-ssh-user')?.value || '').trim() : '';
-          const firstCardDest = firstCard ? (firstCard.querySelector('.srv-dest-path')?.value || 'C:/JAVAJAR/').trim() : 'C:/JAVAJAR/';
-
-          logBox.innerHTML += `<div class="text-xs color-cyan code-font mt-1">[2/4] Target Server IP: <code>${targetServerIp}</code> ➔ Copying ${topoJson} &amp; ${jarName} to: <code>${firstCardDest}</code></div>`;
-          if (progressLabel) progressLabel.textContent = "Status: Transferring JAR & Selected CSV Weights to Target Server";
-          if (progressFill) progressFill.style.width = '65%';
-          if (progressPct) progressPct.textContent = '65%';
-
-          // Perform real Stage 1 disk copy API call
-          const copyRes = await copyStage1API({
-            destDirectory: firstCardDest,
-            targetServerIp,
-            sshUser,
-            selectedWeights,
-            topoJsonName: topoJson,
-            jarName: jarName
-          });
-
-          if (progressLabel) progressLabel.textContent = "Status: Verification Complete";
-          if (progressFill) progressFill.style.width = '100%';
-          if (progressPct) progressPct.textContent = '100%';
-
-          if (copyRes.networkError) {
-            logBox.innerHTML += `<div class="text-xs color-amber font-bold mt-1">⚠️ Remote Direct Path Notice: ${copyRes.networkError}</div>`;
-            logBox.innerHTML += `<div class="text-xs color-cyan code-font mt-1">📋 Generated Live SCP Transfer Command:</div>`;
-            logBox.innerHTML += `<div class="code-font text-xs p-2 mt-1 mb-1" style="background:#0a0e17; border: 1px solid var(--accent-amber); border-radius:4px; color:#38bdf8;">${copyRes.scpPreview}</div>`;
-          } else {
-            logBox.innerHTML += `<div class="text-xs color-emerald font-bold mt-1">[3/4] ✅ Real Disk Copy Complete!</div>`;
-          }
-
-          if (copyRes.s3TransferCommand) {
-            logBox.innerHTML += `<div class="text-xs color-purple code-font mt-1">☁️ AWS S3 Bucket URI: <code>${copyRes.s3BucketUri || 's3://asymptotic-model-weights/weights_csv/'}</code></div>`;
-            logBox.innerHTML += `<div class="text-xs color-purple code-font">☁️ AWS S3 High-Speed Direct Sync Command:</div>`;
-            logBox.innerHTML += `<div class="code-font text-xs p-2 mt-1 mb-1" style="background:#0c0a1a; border: 1px solid var(--accent-purple); border-radius:4px; color:#c084fc;">${copyRes.s3TransferCommand}</div>`;
-          }
-
-          logBox.innerHTML += `<div class="text-xs code-font text-muted">  • Destination Directory: <code>${copyRes.targetDirectory}</code></div>`;
-          logBox.innerHTML += `<div class="text-xs code-font text-muted">  • Files Written: <code>${copyRes.copiedFiles.join(', ')}</code></div>`;
-          logBox.innerHTML += `<div class="text-xs code-font text-muted">  • Weight CSV Files Copied: <strong>${copyRes.weightsCopiedCount} CSV files</strong> inside <code>weights_csv/</code></div>`;
-
-          stage1Completed = true;
-          confirmBtn.disabled = false;
-          confirmBtn.className = "btn btn-emerald font-bold";
-          confirmBtn.textContent = "🚀 Step 2: Execute Java Runtime Across All Servers";
-          this.showCustomToast(copyRes.networkError ? "Stage 1 Topology Prepared! Check Log for SCP Command." : `Stage 1 Copy Complete! ${copyRes.weightsCopiedCount} weights written`, "info");
-        } catch (err) {
-          logBox.innerHTML += `<div class="text-xs color-rose font-bold mt-1">Upload Error: ${err.message}</div>`;
-          confirmBtn.disabled = false;
-          confirmBtn.textContent = "Retry Stage 1 Upload";
-        }
-        return;
+        logBox.innerHTML = `
+          <div class="p-2 mb-2" style="background: rgba(245,158,11,0.1); border-left: 3px solid var(--accent-amber); border-radius: 4px;">
+            <div class="font-bold text-xs color-amber">[Stage 1/3] Saving Topology &amp; Slicing Weight CSVs</div>
+            <div class="text-xs text-muted mt-1" id="deploy-weight-timer">⏳ Extracting safetensors weights into CSV files...</div>
+          </div>
+        `;
       }
+      if (progressFill) progressFill.style.width = '15%';
+      if (progressPct) progressPct.textContent = '15%';
 
-      // STAGE 2: EXECUTE JAVA RUNTIME ACROSS ALL SERVERS
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = "Launching Remote Execution...";
+      let stage1Pct = 15;
+      const progressTimer = setInterval(() => {
+        if (stage1Pct < 90) {
+          stage1Pct += 3;
+          if (progressFill) progressFill.style.width = `${stage1Pct}%`;
+          if (progressPct) progressPct.textContent = `${stage1Pct}%`;
+        }
+        const timerEl = document.getElementById('deploy-weight-timer');
+        if (timerEl) {
+          const dots = '.'.repeat((Math.floor(stage1Pct / 10) % 3) + 1);
+          timerEl.textContent = `⏳ Slicing weight float matrices from safetensors model${dots} (${stage1Pct}%)`;
+        }
+      }, 1000);
 
       try {
-        const firstCardDest = modalBody.querySelector('.srv-dest-path')?.value || 'C:/JAVAJAR/';
-        const execRes = await executeDeploymentAPI({
-          xms,
-          xmx,
-          jarName,
-          serverIp,
-          topoJson,
-          modelSize,
-          destDirectory: firstCardDest
-        });
+        // Step 1: Save graph via Spring Boot API (POST /api/graphs)
+        const modelTensorId = await this.resolveModelTensorId();
+        const saveRes = await saveTopologyAPI(this.vertices, this.groups, this.positions, "LLM Cluster Topology", modelTensorId, this.currentGraphId);
+        clearInterval(progressTimer);
 
-        logBox.innerHTML += `
-          <div class="text-xs color-emerald font-bold mt-2">[4/4] Process Execution Invoked!</div>
-          <div class="text-xs color-cyan code-font mt-1">Command: ${execRes.executionCommand}</div>
-          <div class="text-xs code-font text-muted mt-1">Working Dir: <code>${execRes.workingDirectory}</code></div>
-        `;
+        if (saveRes && saveRes.graphId) this.currentGraphId = saveRes.graphId;
+        const graphId = saveRes.graphId || this.currentGraphId || "GRP-0001";
+        const version = saveRes.version || 1;
 
-        confirmBtn.textContent = "Execution Finished!";
-        this.showCustomToast("Java CLI Process Execution Completed!", "success");
+        if (progressFill) progressFill.style.width = '100%';
+        if (progressPct) progressPct.textContent = '100%';
 
-        // Automatically open live terminal log monitor with real execution logs
-        setTimeout(() => {
-          backdrop.style.display = 'none';
-          this.openTerminalModal(execRes.logs || []);
-        }, 800);
+        if (logBox) {
+          logBox.innerHTML += `
+            <div class="p-2 mb-2" style="background: rgba(16,185,129,0.1); border-left: 3px solid var(--accent-emerald); border-radius: 4px;">
+              <div class="font-bold text-xs color-emerald">✓ [Stage 1/3 Complete] Topology Saved (ID: ${graphId}, v${version}) &amp; Weight CSVs Generated</div>
+            </div>
+            <div class="p-2 mb-2" style="background: rgba(6,182,212,0.1); border-left: 3px solid var(--accent-cyan); border-radius: 4px;">
+              <div class="font-bold text-xs color-cyan">[Stage 2/3] SCP Cluster Transfer</div>
+              <div class="text-xs text-muted mt-1" id="scp-transfer-timer">⏳ Transferring JAR executable &amp; weight CSV files over SCP to target servers...</div>
+            </div>
+          `;
+        }
+
+        if (progressFill) progressFill.style.width = '20%';
+        if (progressPct) progressPct.textContent = '20%';
+
+        let stage2Pct = 20;
+        const scpTimer = setInterval(() => {
+          if (stage2Pct < 90) {
+            stage2Pct += 4;
+            if (progressFill) progressFill.style.width = `${stage2Pct}%`;
+            if (progressPct) progressPct.textContent = `${stage2Pct}%`;
+          }
+          const timerEl = document.getElementById('scp-transfer-timer');
+          if (timerEl) {
+            const dots = '.'.repeat((Math.floor(stage2Pct / 10) % 3) + 1);
+            timerEl.textContent = `⏳ SCP Uploading binaries to /home/kai/qwenf5/asymptote/${dots} (${stage2Pct}%)`;
+          }
+        }, 1000);
+
+        // Step 2: Trigger cluster deployment over SSH (POST /api/deployments)
+        const deployRes = await deployGraphAPI(graphId, version);
+        clearInterval(scpTimer);
+
+        if (progressFill) progressFill.style.width = '100%';
+        if (progressPct) progressPct.textContent = '100%';
+        if (progressLabel) progressLabel.textContent = `Status: ${deployRes.status || 'RUNNING'}`;
+
+        const isSuccess = deployRes.status === 'RUNNING';
+        const statusBadgeClass = isSuccess ? 'badge-emerald' : 'badge-rose';
+
+        if (logBox) {
+          logBox.innerHTML += `
+            <div class="p-2 mb-2" style="background: ${isSuccess ? 'rgba(16,185,129,0.1)' : 'rgba(244,63,94,0.1)'}; border-left: 3px solid ${isSuccess ? 'var(--accent-emerald)' : 'var(--accent-rose)'}; border-radius: 4px;">
+              <div class="font-bold text-xs flex-between">
+                <span>[Stage 3/3] Cluster Deployment Summary</span>
+                <span class="badge ${statusBadgeClass}">${deployRes.status || 'FINISHED'}</span>
+              </div>
+            </div>
+          `;
+
+          if (Array.isArray(deployRes.vertices)) {
+            deployRes.vertices.forEach(v => {
+              const vSuccess = v.state === 'RUNNING' || v.state === 'STAGED';
+              const stateBadge = vSuccess ? 'badge-emerald' : 'badge-rose';
+              const remoteLogPath = `/home/kai/qwenf5/asymptote/${v.vertexId}/out.log`;
+              
+              logBox.innerHTML += `
+                <div class="p-2 mb-2" style="background: #0d131f; border: 1px solid var(--panel-border); border-radius: 6px;">
+                  <div class="flex-between">
+                    <span class="font-bold text-xs color-cyan">${v.vertexId} (${v.vid || 'Vertex'})</span>
+                    <span class="badge ${stateBadge}">${v.state}</span>
+                  </div>
+                  <div class="text-xs text-muted mt-1">Target Host: <code>${v.host}:${v.port}</code> ${v.pid ? `| PID: <b class="color-amber">${v.pid}</b>` : ''}</div>
+                  <div class="text-xs text-muted mt-1">Remote Log: <code>${remoteLogPath}</code></div>
+                  ${v.message ? `<div class="text-xs ${vSuccess ? 'color-emerald' : 'color-rose'} mt-1 font-mono" style="word-break: break-all;">Diagnostic: ${v.message}</div>` : ''}
+                </div>
+              `;
+            });
+          }
+        }
+
+        this.currentDeploymentId = deployRes.deploymentId || this.currentDeploymentId;
+
+        const stopBtn = document.getElementById('btn-stop-deploy');
+        const headerStopBtn = document.getElementById('btn-terminate-cluster');
+        if (stopBtn) {
+          stopBtn.style.display = 'inline-block';
+          stopBtn.onclick = () => this.terminateCurrentDeployment();
+        }
+        if (headerStopBtn) {
+          headerStopBtn.style.display = 'inline-flex';
+          headerStopBtn.onclick = () => this.terminateCurrentDeployment();
+        }
+
+        if (isSuccess) {
+          this.showCustomToast(`Cluster Deployment RUNNING!`, "success");
+          confirmBtn.textContent = "Deployment Finished";
+        } else {
+          this.showCustomToast(`Deployment finished with status: ${deployRes.status}`, "warning");
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = "Retry Deployment";
+        }
       } catch (err) {
-        logBox.innerHTML += `<div class="text-xs color-rose font-bold mt-1">Execution Error: ${err.message}</div>`;
+        clearInterval(progressTimer);
+        if (typeof scpTimer !== 'undefined') clearInterval(scpTimer);
+        if (logBox) {
+          logBox.innerHTML += `
+            <div class="p-2 mb-2" style="background: rgba(244,63,94,0.15); border-left: 3px solid var(--accent-rose); border-radius: 4px;">
+              <div class="font-bold text-xs color-rose">[ERROR] Cluster Deployment Failed</div>
+              <div class="text-xs text-muted mt-1 font-mono color-rose" style="word-break: break-all;">${err.message}</div>
+            </div>
+          `;
+        }
+        if (progressLabel) progressLabel.textContent = "Status: Failed";
+        this.showCustomToast("Deployment failed: " + err.message, "error");
         confirmBtn.disabled = false;
-        confirmBtn.textContent = "Retry Execution";
-        this.showCustomToast("Error: " + err.message, "error");
+        confirmBtn.textContent = "Retry Deployment";
       }
     };
+  }
+
+  async terminateCurrentDeployment() {
+    if (!this.currentDeploymentId) {
+      this.showCustomToast("No active deployment to terminate.", "warning");
+      return;
+    }
+
+    const stopBtn = document.getElementById('btn-stop-deploy');
+    const headerStopBtn = document.getElementById('btn-terminate-cluster');
+    if (stopBtn) {
+      stopBtn.disabled = true;
+      stopBtn.textContent = "Terminating...";
+    }
+    if (headerStopBtn) {
+      headerStopBtn.disabled = true;
+      headerStopBtn.textContent = "Terminating...";
+    }
+
+    try {
+      this.showCustomToast("Sending SSH kill signals to cluster vertices...", "info");
+      const res = await stopDeploymentAPI(this.currentDeploymentId);
+      
+      this.showCustomToast("Cluster deployment stopped! All processes killed.", "success");
+      
+      if (stopBtn) {
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+        stopBtn.textContent = "🛑 Terminate Cluster Processes";
+      }
+      if (headerStopBtn) {
+        headerStopBtn.style.display = 'none';
+        headerStopBtn.disabled = false;
+        headerStopBtn.textContent = "Stop Cluster";
+      }
+
+      const progressLabel = document.getElementById('deploy-progress-label');
+      if (progressLabel) progressLabel.textContent = "Status: STOPPED";
+
+      const logBox = document.getElementById('deploy-live-log');
+      if (logBox) {
+        logBox.innerHTML += `
+          <div class="p-2 mb-2" style="background: rgba(244,63,94,0.1); border-left: 3px solid var(--accent-rose); border-radius: 4px;">
+            <div class="font-bold text-xs color-rose">🛑 [TERMINATED] All Remote Vertex Processes Stopped</div>
+            <div class="text-xs text-muted mt-1">Deployment ID: <code>${this.currentDeploymentId}</code> | Status: <b>STOPPED</b></div>
+          </div>
+        `;
+      }
+    } catch (err) {
+      this.showCustomToast("Terminate cluster failed: " + err.message, "error");
+      if (stopBtn) {
+        stopBtn.disabled = false;
+        stopBtn.textContent = "🛑 Terminate Cluster Processes";
+      }
+      if (headerStopBtn) {
+        headerStopBtn.disabled = false;
+        headerStopBtn.textContent = "Stop Cluster";
+      }
+    }
   }
 
   updateInspector() {
@@ -1416,6 +1372,106 @@ class App {
     }
   }
 
+  async openHostsModal() {
+    const backdrop = document.getElementById('hosts-modal-backdrop');
+    const container = document.getElementById('hosts-list-container');
+    if (!backdrop || !container) return;
+
+    backdrop.style.display = 'flex';
+    container.innerHTML = `<span class="text-muted text-xs">Fetching registered hosts from Spring Boot DB...</span>`;
+
+    try {
+      const hosts = await getHostsAPI();
+      if (!Array.isArray(hosts) || hosts.length === 0) {
+        container.innerHTML = `<div class="text-xs text-muted">No hosts registered yet. Fill out the form above to add SSH host credentials.</div>`;
+        return;
+      }
+
+      container.innerHTML = hosts.map(h => `
+        <div class="flex-between p-2 mb-1" style="background:var(--input-bg); border-radius:6px; border:1px solid var(--panel-border);">
+          <div>
+            <div class="font-bold text-sm color-cyan">${h.ip} ${h.hostname ? '(' + h.hostname + ')' : ''}</div>
+            <div class="text-xs text-muted">SSH User: <code>${h.username || h.sshUser || 'root'}</code> | Port: <code>${h.sshPort || 22}</code></div>
+          </div>
+          <button class="btn btn-xs btn-danger-icon btn-del-host" data-ip="${h.ip}">Delete</button>
+        </div>
+      `).join('');
+
+      container.querySelectorAll('.btn-del-host').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const ip = e.target.getAttribute('data-ip');
+          const confirmed = await this.showCustomConfirm("Delete Host", `Are you sure you want to delete SSH credentials for host ${ip}?`);
+          if (confirmed) {
+            await deleteHostAPI(ip);
+            this.showCustomToast(`Deleted host ${ip}`, "info");
+            this.openHostsModal();
+          }
+        });
+      });
+    } catch (err) {
+      container.innerHTML = `<div class="text-xs color-rose">Failed to load hosts: ${err.message}</div>`;
+    }
+  }
+
+  async openTensorsModal() {
+    const backdrop = document.getElementById('tensors-modal-backdrop');
+    const container = document.getElementById('tensors-list-container');
+    if (!backdrop || !container) return;
+
+    backdrop.style.display = 'flex';
+    container.innerHTML = `<span class="text-muted text-xs">Fetching indexed model tensors from GridFS...</span>`;
+
+    try {
+      const tensors = await getModelTensorsAPI();
+      if (!Array.isArray(tensors) || tensors.length === 0) {
+        container.innerHTML = `<div class="text-xs text-muted">No model tensors uploaded yet. Select a .safetensors file above to index.</div>`;
+        return;
+      }
+
+      container.innerHTML = tensors.map(t => `
+        <div class="p-2 mb-1" style="background:var(--input-bg); border-radius:6px; border:1px solid var(--panel-border);">
+          <div class="flex-between">
+            <span class="font-bold text-sm color-emerald">${t.name}</span>
+            <span class="badge badge-purple">${t.tensorCount || (t.tensorIndex ? Object.keys(t.tensorIndex).length : 0)} Projections</span>
+          </div>
+          <div class="text-xs text-muted mt-1">Uploaded: <code>${t.uploadedAt ? new Date(t.uploadedAt).toLocaleString() : 'N/A'}</code></div>
+        </div>
+      `).join('');
+    } catch (err) {
+      container.innerHTML = `<div class="text-xs color-rose">Failed to load model tensors: ${err.message}</div>`;
+    }
+  }
+
+  async openVertexDefsModal() {
+    const backdrop = document.getElementById('vertex-defs-modal-backdrop');
+    const container = document.getElementById('vertex-defs-list-container');
+    if (!backdrop || !container) return;
+
+    backdrop.style.display = 'flex';
+    container.innerHTML = `<span class="text-muted text-xs">Fetching registered vertex definitions from MongoDB...</span>`;
+
+    try {
+      const defs = await getVertexJarsAPI();
+      if (!Array.isArray(defs) || defs.length === 0) {
+        container.innerHTML = `<div class="text-xs text-muted">No vertex definitions uploaded yet. Select a JAR file above to register.</div>`;
+        return;
+      }
+
+      container.innerHTML = defs.map(d => `
+        <div class="p-2 mb-1" style="background:var(--input-bg); border-radius:6px; border:1px solid var(--panel-border);">
+          <div class="flex-between">
+            <span class="font-bold text-sm color-purple">${d.name} <code>(${d.vid || 'VTX-DEF'})</code></span>
+            <span class="badge badge-blue">v${d.version || 1} • ${d.jarFileName || 'JAR'}</span>
+          </div>
+          <div class="text-xs text-muted mt-1">${d.description || 'Spring Boot Executable Vertex Module'}</div>
+          <div class="text-xs text-muted mt-1 font-mono">Checksum: <code>${d.jarChecksum ? d.jarChecksum.substring(0, 20) + '...' : 'N/A'}</code></div>
+        </div>
+      `).join('');
+    } catch (err) {
+      container.innerHTML = `<div class="text-xs color-rose">Failed to load vertex definitions: ${err.message}</div>`;
+    }
+  }
+
   bindGlobalEvents() {
     this.initPaletteToggle();
 
@@ -1466,6 +1522,95 @@ class App {
       toggleInspectorBtn.addEventListener('click', () => this.toggleInspector());
     }
 
+    // Vertex Registry Modal Binding
+    const vdefBtn = document.getElementById('btn-vertex-defs-modal');
+    if (vdefBtn) vdefBtn.addEventListener('click', () => this.openVertexDefsModal());
+
+    const closeVdefBtn = document.getElementById('btn-close-vertex-defs-modal');
+    const vdefBackdrop = document.getElementById('vertex-defs-modal-backdrop');
+    if (closeVdefBtn) closeVdefBtn.addEventListener('click', () => vdefBackdrop.style.display = 'none');
+
+    const formVdef = document.getElementById('form-create-vertex-def');
+    if (formVdef) {
+      formVdef.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('vdef-name-input')?.value.trim();
+        const description = document.getElementById('vdef-desc-input')?.value.trim();
+        const jarFile = document.getElementById('vdef-jar-input')?.files[0];
+        const requiresWeights = document.getElementById('vdef-weights-input')?.checked ?? true;
+
+        if (!jarFile) {
+          this.showCustomToast("Please select a .jar file to upload", "error");
+          return;
+        }
+
+        try {
+          this.showCustomToast("Uploading JAR to GridFS...", "info");
+          await createVertexDefinitionAPI({ name, description, requiresWeights }, jarFile);
+          this.showCustomToast(`Registered vertex definition '${name}'!`, "success");
+          this.openVertexDefsModal();
+        } catch (err) {
+          this.showCustomToast("Failed to upload vertex JAR: " + err.message, "error");
+        }
+      });
+    }
+
+    const hostsBtn = document.getElementById('btn-hosts-modal');
+    if (hostsBtn) hostsBtn.addEventListener('click', () => this.openHostsModal());
+
+    const closeHostsBtn = document.getElementById('btn-close-hosts-modal');
+    const hostsBackdrop = document.getElementById('hosts-modal-backdrop');
+    if (closeHostsBtn) closeHostsBtn.addEventListener('click', () => hostsBackdrop.style.display = 'none');
+
+    const formHost = document.getElementById('form-register-host');
+    if (formHost) {
+      formHost.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const ip = document.getElementById('host-ip-input')?.value.trim();
+        const sshUser = document.getElementById('host-user-input')?.value.trim();
+        const sshPort = Number(document.getElementById('host-port-input')?.value) || 22;
+        const pass = document.getElementById('host-pass-input')?.value.trim();
+        try {
+          await registerHostAPI({ ip, sshUser, sshPort, authType: 'PASSWORD', encryptedPassword: pass });
+          this.showCustomToast(`Host ${ip} registered in Spring Boot DB!`, "success");
+          this.openHostsModal();
+        } catch (err) {
+          this.showCustomToast("Host registration failed: " + err.message, "error");
+        }
+      });
+    }
+
+    const tensorsBtn = document.getElementById('btn-tensors-modal');
+    if (tensorsBtn) tensorsBtn.addEventListener('click', () => this.openTensorsModal());
+
+    const closeTensorsBtn = document.getElementById('btn-close-tensors-modal');
+    const tensorsBackdrop = document.getElementById('tensors-modal-backdrop');
+    if (closeTensorsBtn) closeTensorsBtn.addEventListener('click', () => tensorsBackdrop.style.display = 'none');
+
+    const formTensor = document.getElementById('form-upload-tensor');
+    if (formTensor) {
+      formTensor.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('tensor-name-input')?.value.trim();
+        const fileInput = document.getElementById('tensor-file-input');
+        const file = fileInput?.files[0];
+        if (!file) return;
+        try {
+          this.showCustomToast("Uploading .safetensors file to GridFS...", "info");
+          await uploadModelTensorAPI(name, file);
+          this.showCustomToast(`Uploaded ${name} to GridFS!`, "success");
+          this.openTensorsModal();
+        } catch (err) {
+          this.showCustomToast("Tensor upload failed: " + err.message, "error");
+        }
+      });
+    }
+
+    const saveBtn = document.getElementById('btn-save-graph');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => this.saveCurrentGraph());
+    }
+
     const newTopoBtn = document.getElementById('btn-new-topo');
     if (newTopoBtn) {
       newTopoBtn.addEventListener('click', () => this.createNewTopology());
@@ -1488,37 +1633,10 @@ class App {
       themeBtn.addEventListener('click', () => this.toggleTheme());
     }
 
-    const importInput = document.getElementById('file-import-input');
-    importInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        this.importJSONText(event.target.result);
-        importInput.value = '';
-      };
-      reader.readAsText(file);
-    });
-
-    document.getElementById('btn-auto-layout').addEventListener('click', () => this.runAutoLayout());
-
-    document.getElementById('btn-batch-modal').addEventListener('click', () => {
-      openBatchModal(async (generatedVertices) => {
-        this.vertices = [...this.vertices, ...generatedVertices];
-        this.positions = await computeAutoLayoutAPI(this.vertices, this.groups);
-        this.engine.setGraphData(this.vertices, this.positions, this.groups);
-        this.engine.fitView();
-        await this.syncStateToAPI();
-        this.updateLiveJSON();
-        this.showCustomToast("Batch slices generated", "success");
-      });
-    });
-
-    document.getElementById('btn-export-json').addEventListener('click', () => {
-      const jsonStr = generateTopologyJSON(this.vertices);
-      downloadJSON(jsonStr, "topology.json");
-      this.showCustomToast("Exported topology.json", "success");
-    });
+    const autoLayoutBtn = document.getElementById('btn-auto-layout');
+    if (autoLayoutBtn) {
+      autoLayoutBtn.addEventListener('click', () => this.runAutoLayout());
+    }
 
     // Expandable & Resizable Live JSON & Terminal Drawer
     const jsonDrawer = document.getElementById('json-drawer');

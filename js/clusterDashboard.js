@@ -37,7 +37,7 @@ export class ClusterDashboard {
         <div class="dashboard-header flex-between mb-4">
           <div>
             <h2 class="font-bold text-lg flex-row gap-2">
-              <span>🖥️</span> Deployed Cluster Servers & Live Heartbeat Telemetry
+              Deployed Cluster Servers &amp; Live Heartbeat Telemetry
             </h2>
             <p class="text-xs text-muted mt-1">
               Real-time monitoring of cluster nodes, target IP reachability, CPU/RAM metrics, and deployed vertex JAR processes.
@@ -48,7 +48,7 @@ export class ClusterDashboard {
               + Register Server
             </button>
             <button class="btn btn-primary btn-sm" id="btn-ping-all" title="Trigger instant heartbeat ping across all nodes">
-              ⚡ Ping Heartbeats Now
+              Ping Heartbeats Now
             </button>
           </div>
         </div>
